@@ -145,6 +145,88 @@ public class BinanceSource implements Source<Trade, ...> {
 }
 ```
 
+## 常见错误
+
+### 错误1：忘记实现 cancel() 方法
+
+```java
+// ❌ 错误：只实现run()，没有实现cancel()
+public class MySource implements SourceFunction<String> {
+    @Override
+    public void run(SourceContext<String> ctx) throws Exception {
+        while (true) {  // 死循环，无法停止
+            ctx.collect("data");
+        }
+    }
+    // 缺少cancel()方法
+}
+
+// ✅ 正确：实现两个方法
+public class MySource implements SourceFunction<String> {
+    private volatile boolean isRunning = true;
+
+    @Override
+    public void run(SourceContext<String> ctx) throws Exception {
+        while (isRunning) {
+            ctx.collect("data");
+        }
+    }
+
+    @Override
+    public void cancel() {
+        isRunning = false;  // 让run()退出循环
+    }
+}
+```
+
+### 错误2：不使用 volatile 修饰 isRunning
+
+```java
+// ❌ 错误：isRunning不是volatile，可能导致可见性问题
+private boolean isRunning = true;  // 错误！
+
+// ✅ 正确：使用volatile保证多线程可见性
+private volatile boolean isRunning = true;
+```
+
+### 错误3：在 run() 方法中阻塞导致无法响应 cancel()
+
+```java
+// ❌ 错误：长时间阻塞，无法及时响应cancel()
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (isRunning) {
+        Thread.sleep(10000);  // 阻塞10秒，cancel()调用后要等10秒才退出
+        ctx.collect("data");
+    }
+}
+
+// ✅ 正确：使用较短的sleep，或检查isRunning
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (isRunning) {
+        ctx.collect("data");
+        Thread.sleep(100);  // 短时间阻塞，能及时响应cancel()
+    }
+}
+```
+
+### 错误4：忘记使用 getCheckpointLock()
+
+```java
+// ❌ 错误：发送数据时没有加锁
+client.onMessage(message -> {
+    ctx.collect(data);  // 可能导致检查点不一致
+});
+
+// ✅ 正确：使用检查点锁保护
+client.onMessage(message -> {
+    synchronized (ctx.getCheckpointLock()) {
+        ctx.collect(data);  // 保证检查点一致性
+    }
+});
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你需要**从自定义数据源读取数据**时（如币安WebSocket）

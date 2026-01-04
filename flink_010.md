@@ -241,6 +241,126 @@ while (isRunning) {
 }
 ```
 
+## 常见错误
+
+### 错误1：run() 方法没有循环，立即退出
+
+```java
+// ❌ 错误：run()方法立即返回，数据源立即停止
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    ctx.collect("data1");
+    ctx.collect("data2");
+    // 方法结束，数据源停止
+}
+
+// ✅ 正确：使用循环保持运行
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (isRunning) {
+        ctx.collect("data");
+        Thread.sleep(100);
+    }
+}
+```
+
+### 错误2：在 run() 方法中抛出未捕获的异常
+
+```java
+// ❌ 错误：异常导致整个作业失败
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (isRunning) {
+        String data = fetchData();  // 可能抛出异常
+        ctx.collect(data);  // 如果异常，整个作业失败
+    }
+}
+
+// ✅ 正确：捕获异常，避免作业失败
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (isRunning) {
+        try {
+            String data = fetchData();
+            synchronized (ctx.getCheckpointLock()) {
+                ctx.collect(data);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to fetch data", e);
+            // 继续运行，不抛出异常
+        }
+    }
+}
+```
+
+### 错误3：在 run() 方法中创建资源但忘记清理
+
+```java
+// ❌ 错误：创建连接但忘记清理
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    WebSocketClient client = new WebSocketClient(...);
+    client.connect();
+    while (isRunning) {
+        // 使用client
+    }
+    // 忘记关闭client，资源泄漏
+}
+
+// ✅ 正确：在finally块或cancel()中清理
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    WebSocketClient client = null;
+    try {
+        client = new WebSocketClient(...);
+        client.connect();
+        while (isRunning) {
+            // 使用client
+        }
+    } finally {
+        if (client != null) {
+            client.close();
+        }
+    }
+}
+```
+
+### 错误4：在 run() 方法中不使用 getCheckpointLock()
+
+```java
+// ❌ 错误：多线程环境下发送数据没有加锁
+client.onMessage(message -> {
+    ctx.collect(data);  // 可能导致检查点不一致
+});
+
+// ✅ 正确：使用检查点锁
+client.onMessage(message -> {
+    synchronized (ctx.getCheckpointLock()) {
+        ctx.collect(data);
+    }
+});
+```
+
+### 错误5：run() 方法中的循环条件错误
+
+```java
+// ❌ 错误：循环条件错误，无法退出
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (true) {  // 死循环，即使cancel()被调用也无法退出
+        ctx.collect("data");
+    }
+}
+
+// ✅ 正确：检查isRunning标志
+@Override
+public void run(SourceContext<String> ctx) throws Exception {
+    while (isRunning) {  // 可以通过cancel()设置isRunning=false退出
+        ctx.collect("data");
+    }
+}
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你**实现 SourceFunction** 时（核心就是实现这个方法）

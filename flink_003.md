@@ -96,6 +96,54 @@ env.execute();
 2. **可读性强**：从上到下，数据流向清晰
 3. **优化空间**：Flink 可以优化整个链，比如合并某些操作
 
+## 常见错误
+
+### 错误1：链式调用中忘记接收中间结果
+
+```java
+// ❌ 错误：链式调用后没有保存最终结果
+env.fromElements("hello", "world")
+   .map(s -> s.toUpperCase())
+   .filter(s -> s.length() > 4);
+// 没有sink操作，也没有保存结果，数据会丢失
+
+// ✅ 正确：添加sink或保存结果
+env.fromElements("hello", "world")
+   .map(s -> s.toUpperCase())
+   .filter(s -> s.length() > 4)
+   .print();  // 添加sink操作
+```
+
+### 错误2：链式调用中类型不匹配
+
+```java
+// ❌ 错误：map返回String，但filter期望Integer
+DataStream<Integer> numbers = env.fromElements(1, 2, 3);
+numbers.map(i -> String.valueOf(i))  // 返回DataStream<String>
+       .filter(s -> s.length() > 1);  // 编译错误！类型不匹配
+
+// ✅ 正确：保持类型一致或使用正确的转换
+DataStream<String> strings = numbers.map(i -> String.valueOf(i));
+strings.filter(s -> s.length() > 1);
+```
+
+### 错误3：在链式调用中混用不同环境的流
+
+```java
+// ❌ 错误：不同环境的流不能混用
+StreamExecutionEnvironment env1 = StreamExecutionEnvironment.getExecutionEnvironment();
+StreamExecutionEnvironment env2 = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStream<String> stream1 = env1.fromElements("hello");
+stream1.map(s -> s.toUpperCase())
+       .print();  // 错误！print()会使用env1，但可能期望env2
+
+// ✅ 正确：使用同一个环境的流
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStream<String> stream = env.fromElements("hello");
+stream.map(s -> s.toUpperCase()).print();
+env.execute();
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你写 Flink 代码时，**几乎总是**使用链式调用

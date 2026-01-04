@@ -139,6 +139,63 @@ protected <R> SingleOutputStreamOperator<R> doTransform(...) {
 - ✅ **只需要**正常使用 DataStream API（`map`、`filter`、`addSource` 等），Flink 会自动管理
 - ✅ 当你调用 `execute()` 时，Flink 会遍历 `transformations` 列表，构建执行图并提交作业
 
+## 常见错误
+
+### 错误1：忘记创建 StreamExecutionEnvironment
+
+```java
+// ❌ 错误：直接使用DataStream，没有创建环境
+DataStream<String> stream = env.fromElements("hello");  // 编译错误！env未定义
+
+// ✅ 正确：先创建环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStream<String> stream = env.fromElements("hello");
+```
+
+### 错误2：在创建环境前就尝试使用
+
+```java
+// ❌ 错误：在创建环境前使用
+DataStream<String> stream = createStream();  // 假设这个方法需要env
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+// ✅ 正确：先创建环境，再使用
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStream<String> stream = env.fromElements("hello");
+```
+
+### 错误3：试图手动管理 transformations 列表
+
+```java
+// ❌ 错误：试图手动添加transformation
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// env.transformations.add(...);  // 错误！不应该手动管理
+
+// ✅ 正确：通过DataStream API自动管理
+DataStream<String> stream = env.fromElements("hello");
+stream.map(s -> s.toUpperCase());  // Flink自动添加到transformations列表
+```
+
+### 错误4：在execute()后继续使用环境
+
+```java
+// ❌ 错误：execute()后环境已使用，不能再次使用
+env.fromElements("hello").print();
+env.execute("Job 1");
+
+env.fromElements("world").print();  // 错误！环境已执行，不能再次使用
+env.execute("Job 2");
+
+// ✅ 正确：每个作业使用独立的环境
+StreamExecutionEnvironment env1 = StreamExecutionEnvironment.getExecutionEnvironment();
+env1.fromElements("hello").print();
+env1.execute("Job 1");
+
+StreamExecutionEnvironment env2 = StreamExecutionEnvironment.getExecutionEnvironment();
+env2.fromElements("world").print();
+env2.execute("Job 2");
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你**开始写任何 Flink 程序**时（第一步就是创建它）

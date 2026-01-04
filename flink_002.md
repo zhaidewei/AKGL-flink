@@ -128,6 +128,45 @@ stream.map(...).filter(...).keyBy(...)
 
 每个转换都记录"我的父转换是谁"，Flink 在 execute() 时根据这个链构建执行图。
 
+## 常见错误
+
+### 错误1：期望转换操作修改原流
+
+```java
+DataStream<String> original = env.fromElements("hello", "world");
+original.map(s -> s.toUpperCase());  // ❌ 错误：没有接收返回值
+original.print();  // 输出的是原始数据 "hello", "world"，不是 "HELLO", "WORLD"
+
+// ✅ 正确：接收转换后的新流
+DataStream<String> upper = original.map(s -> s.toUpperCase());
+upper.print();  // 输出转换后的数据
+```
+
+### 错误2：对同一个流进行多次转换后使用原流
+
+```java
+DataStream<String> original = env.fromElements("hello", "world");
+DataStream<String> upper = original.map(s -> s.toUpperCase());
+DataStream<String> filtered = upper.filter(s -> s.length() > 4);
+
+// ❌ 错误：使用原流而不是转换后的流
+original.print();  // 输出原始数据，不是处理后的
+
+// ✅ 正确：使用转换后的流
+filtered.print();  // 输出处理后的数据
+```
+
+### 错误3：试图修改 DataStream 的内部状态
+
+```java
+// ❌ 错误：DataStream是不可变的，没有setter方法
+DataStream<String> stream = env.fromElements("hello");
+stream.setTransformation(...);  // 编译错误！没有这样的方法
+
+// ✅ 正确：通过转换操作创建新流
+DataStream<String> newStream = stream.map(s -> s.toUpperCase());
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你对同一个 DataStream 进行多次转换时

@@ -125,6 +125,31 @@ env.execute("Job 2");  // 错误！同一个环境不能执行两次
 
 **正确做法**：每个作业使用独立的环境。
 
+### 错误3：在 execute() 前设置断点调试
+
+```java
+// ❌ 错误：在execute()前设置断点，无法调试
+DataStream<String> stream = env.fromElements("hello");
+stream.map(s -> s.toUpperCase());  // 设置断点在这里无效
+env.execute();  // 只有这里才会真正执行
+
+// ✅ 正确：理解懒加载，在execute()时才会执行
+// 调试时可以在ProcessFunction等实际执行的地方设置断点
+```
+
+### 错误4：execute() 后继续使用环境
+
+```java
+// ❌ 错误：execute()后环境已使用，不能继续添加操作
+env.fromElements("hello").print();
+env.execute("Job");
+
+env.fromElements("world").print();  // 错误！环境已执行
+env.execute("Job 2");  // 会抛出异常
+
+// ✅ 正确：每个作业使用独立环境
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你写 Flink 代码时，**必须记住调用 execute()**

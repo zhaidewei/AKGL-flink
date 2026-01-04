@@ -79,6 +79,43 @@ env.execute("My Flink Job");
 - `upperWords` 是另一个 `DataStream<String>`，是转换后的结果
 - 每个转换操作都返回**新的 DataStream**，原来的不变
 
+## 常见错误
+
+### 错误1：忘记转换操作返回新对象
+
+```java
+DataStream<String> words = env.fromElements("hello", "world");
+words.map(s -> s.toUpperCase());  // ❌ 错误：没有接收返回值
+words.print();  // 输出的是原始数据，不是转换后的
+
+// ✅ 正确：接收转换后的新流
+DataStream<String> upperWords = words.map(s -> s.toUpperCase());
+upperWords.print();  // 输出转换后的数据
+```
+
+### 错误2：混淆 DataStream 和集合
+
+```java
+// ❌ 错误：试图直接访问元素
+DataStream<String> words = env.fromElements("hello", "world");
+String first = words.get(0);  // 编译错误！DataStream没有get()方法
+
+// ✅ 正确：DataStream是流，需要通过转换操作处理
+words.map(s -> s.toUpperCase()).print();
+```
+
+### 错误3：在转换前就尝试使用数据
+
+```java
+// ❌ 错误：试图在定义阶段就获取数据
+DataStream<String> words = env.fromElements("hello", "world");
+List<String> list = words.collect();  // 错误！需要先调用execute()
+
+// ✅ 正确：使用sink操作，在execute()后输出
+words.print();  // 在execute()后才会输出
+env.execute();
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你需要处理**持续不断的数据流**（如币安WebSocket交易数据）时

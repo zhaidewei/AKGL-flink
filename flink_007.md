@@ -116,6 +116,50 @@ flink run -c com.example.MyJob /path/to/my-job.jar
 | 容错 | 低 | 高（检查点、故障恢复） |
 | 适用 | 开发测试 | 生产 |
 
+## 常见错误
+
+### 错误1：在现代 Flink 中使用 createRemoteEnvironment()
+
+```java
+// ❌ 错误：使用已废弃的createRemoteEnvironment()
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createRemoteEnvironment(
+    "host", 8081, "job.jar"
+);
+// 现代Flink推荐使用Application Mode，不需要这个方法
+
+// ✅ 正确：使用getExecutionEnvironment() + 命令行提交
+// 代码中：
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// 命令行：flink run -c MainClass job.jar
+```
+
+### 错误2：在代码中硬编码集群地址
+
+```java
+// ❌ 错误：硬编码集群地址，代码不可移植
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createRemoteEnvironment(
+    "192.168.1.100", 8081, "job.jar"
+);
+// 不同环境需要修改代码
+
+// ✅ 正确：使用getExecutionEnvironment()，通过配置或命令行指定
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// 集群地址通过flink run命令或配置文件指定
+```
+
+### 错误3：混淆集群环境和本地环境的使用场景
+
+```java
+// ❌ 错误：在开发时使用集群环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createRemoteEnvironment(...);
+// 开发不方便，需要连接远程集群
+
+// ✅ 正确：开发用本地，生产用集群
+// 开发：
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
+// 生产：使用getExecutionEnvironment()，自动选择集群环境
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你需要**部署 Flink 作业到生产环境**时

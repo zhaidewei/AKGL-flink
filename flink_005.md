@@ -126,6 +126,57 @@ env3.fromElements("flink").print();
 - **本地调试**：使用 `createLocalEnvironment()`
 - **连接到集群**：使用 `createRemoteEnvironment()`（或更好的方式：Application Mode）
 
+## 常见错误
+
+### 错误1：在生产环境使用 createLocalEnvironment()
+
+```java
+// ❌ 错误：在生产环境明确使用本地环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
+// 这会在本地JVM运行，不适合生产环境
+
+// ✅ 正确：使用getExecutionEnvironment()，自动选择
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// 在集群中会自动使用集群环境
+```
+
+### 错误2：在本地开发使用 createRemoteEnvironment()
+
+```java
+// ❌ 错误：在IDE中开发时使用远程环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createRemoteEnvironment(
+    "remote-host", 8081, "job.jar"
+);
+// 需要连接远程集群，开发不方便
+
+// ✅ 正确：使用getExecutionEnvironment()或createLocalEnvironment()
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// 在IDE中自动使用本地环境
+```
+
+### 错误3：硬编码环境类型，代码不可移植
+
+```java
+// ❌ 错误：硬编码使用本地环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment(4);
+// 代码只能在本地运行，不能部署到集群
+
+// ✅ 正确：使用getExecutionEnvironment()，代码可移植
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+env.setParallelism(4);  // 配置可以在任何环境使用
+```
+
+### 错误4：混淆 getExecutionEnvironment() 和 createLocalEnvironment()
+
+```java
+// ❌ 错误：认为getExecutionEnvironment()总是返回本地环境
+// 实际上它会根据上下文自动选择
+
+// ✅ 正确：理解getExecutionEnvironment()的智能选择机制
+// - 在IDE中运行：自动使用本地环境
+// - 通过flink run提交：自动使用集群环境
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你**开始写 Flink 程序**时（第一步选择创建方式）

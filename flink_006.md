@@ -46,6 +46,8 @@ private static int defaultLocalParallelism = Runtime.getRuntime().availableProce
 
 如果你的机器有 8 核，默认并行度就是 8。
 
+> **注意**：关于并行度的详细说明，请参考 [flink_006_1.md](flink_006_1.md)。
+
 ## 最小可用例子
 
 ```java
@@ -85,6 +87,42 @@ env.execute("Local Test");
 2. **单元测试**：编写测试用例
 3. **调试**：设置断点，单步调试
 4. **学习 Flink**：不需要搭建集群就能学习
+
+## 常见错误
+
+### 错误1：在生产环境使用本地环境
+
+```java
+// ❌ 错误：生产环境使用本地环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
+// 这会在本地JVM运行，没有容错能力，不适合生产
+
+// ✅ 正确：生产环境使用getExecutionEnvironment()，自动选择集群环境
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+```
+
+### 错误2：本地环境并行度设置不当
+
+```java
+// ❌ 错误：设置过高的并行度（超过CPU核心数）
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment(100);
+// 本地环境使用线程模拟，过高的并行度没有意义
+
+// ✅ 正确：根据CPU核心数设置合理的并行度
+int cores = Runtime.getRuntime().availableProcessors();
+StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment(cores);
+```
+
+### 错误3：在本地环境测试集群特性
+
+```java
+// ❌ 错误：在本地环境测试需要多节点的特性
+// 本地环境是单JVM，无法测试真正的分布式特性
+
+// ✅ 正确：理解本地环境的限制
+// - 可以测试：基本转换、窗口、状态等
+// - 不能测试：真正的分布式容错、多节点通信等
+```
 
 ## 什么时候你需要想到这个？
 
