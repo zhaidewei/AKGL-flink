@@ -1,108 +1,141 @@
-# SourceFunction接口：自定义数据源的基础
+# Source接口：自定义数据源的基础（新API）
 
-> ⚠️ **重要提示**：`SourceFunction` 是 Flink 的 **Legacy API**（遗留 API），位于 `legacy` 包下，并被标记为 `@Internal`。Flink 推荐使用新的 `Source` API（`org.apache.flink.api.connector.source.Source`），它提供了更好的性能和功能。只有在特定场景下（如需要与旧代码兼容）才建议使用 `SourceFunction`。
+> ✅ **重要提示**：`Source` 接口是 Flink 的**新 API**（推荐使用），位于 `org.apache.flink.api.connector.source` 包下。它提供了比 Legacy `SourceFunction` 更好的性能、可扩展性和容错机制。
 
 ## 核心概念
 
-**SourceFunction** 是 Flink 中自定义数据源的**传统接口**（Legacy API）。如果你想从币安 WebSocket 读取数据，可以实现这个接口，但建议优先考虑使用新的 `Source` API。
+**Source** 接口是 Flink 中自定义数据源的**新 API 接口**。如果你想从币安 WebSocket 读取数据，应该实现这个接口，而不是使用 Legacy 的 `SourceFunction`。
 
 ### 类比理解
 
 这就像：
-- **Java 的 Runnable 接口**：定义了 `run()` 方法，实现它就能创建线程
-- **Spark 的 Source 接口**：如果你用过 Spark，SourceFunction 在 Flink 中扮演类似角色
-- **数据读取器**：定义了"如何读取数据"的规范
+- **工厂模式**：Source 是一个工厂，负责创建 SplitEnumerator 和 SourceReader
+- **策略模式**：定义了数据源的策略（如何读取、如何分片）
+- **数据读取器工厂**：定义了"如何创建数据读取器"的规范
 
-### 核心方法
+### 核心组件
 
-SourceFunction 接口定义了两个必须实现的方法：
-1. **`run(SourceContext ctx)`** - 数据生成的核心逻辑
-2. **`cancel()`** - 优雅停止数据源
+Source 接口涉及三个主要组件：
+1. **`Source<T, SplitT, EnumChkT>`** - 主接口，定义数据源
+2. **`SplitEnumerator<SplitT, EnumChkT>`** - 分片枚举器，管理数据分片（对于 WebSocket 可能不需要）
+3. **`SourceReader<T, SplitT>`** - 数据读取器，实际读取数据
 
 ## 源码位置
 
-SourceFunction 接口定义在：
-[flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java](https://github.com/apache/flink/blob/master/flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java)
+Source 接口定义在：
+[flink-core/src/main/java/org/apache/flink/api/connector/source/Source.java](https://github.com/apache/flink/blob/master/flink-core/src/main/java/org/apache/flink/api/connector/source/Source.java)
 
 ### 接口定义（伪代码）
 
 ```java
-public interface SourceFunction<T> extends Function, Serializable {
-    /**
-     * 数据生成的核心方法
-     * @param ctx SourceContext，用于发送数据到Flink流中
-     */
-    void run(SourceContext<T> ctx) throws Exception;
+public interface Source<T, SplitT extends SourceSplit, EnumChkT>
+        extends SourceReaderFactory<T, SplitT> {
 
     /**
-     * 取消数据源（优雅停止）
+     * 获取数据源的有界性（有界流还是无界流）
      */
-    void cancel();
+    Boundedness getBoundedness();
 
     /**
-     * SourceContext：数据发送的上下文
+     * 创建新的 SplitEnumerator（分片枚举器）
+     * 对于 WebSocket 这种单流数据源，可能返回简单的实现
      */
-    interface SourceContext<T> {
-        // 发送数据（不带时间戳）
-        void collect(T element);
+    SplitEnumerator<SplitT, EnumChkT> createEnumerator(
+            SplitEnumeratorContext<SplitT> enumContext) throws Exception;
 
-        // 发送数据（带时间戳，用于事件时间处理）
-        void collectWithTimestamp(T element, long timestamp);
+    /**
+     * 从检查点恢复 SplitEnumerator
+     */
+    SplitEnumerator<SplitT, EnumChkT> restoreEnumerator(
+            SplitEnumeratorContext<SplitT> enumContext, EnumChkT checkpoint) throws Exception;
 
-        // 发送Watermark
-        void emitWatermark(Watermark mark);
+    /**
+     * 创建分片的序列化器
+     */
+    SimpleVersionedSerializer<SplitT> getSplitSerializer();
 
-        // 获取检查点锁（用于容错）
-        Object getCheckpointLock();
-    }
+    /**
+     * 创建枚举器检查点的序列化器
+     */
+    SimpleVersionedSerializer<EnumChkT> getEnumeratorCheckpointSerializer();
 }
 ```
 
 ### 关键理解
 
-1. **SourceFunction 是一个接口**，不是类
-2. **必须实现两个方法**：`run()` 和 `cancel()`
-3. **`run()` 方法会一直运行**，直到 `cancel()` 被调用
-4. **通过 SourceContext 发送数据**到 Flink 流中
+1. **Source 是一个接口**，不是类
+2. **需要实现多个方法**：创建枚举器、创建读取器、序列化器等
+3. **支持有界和无界流**：通过 `getBoundedness()` 指定
+4. **支持分片**：通过 SplitEnumerator 管理数据分片（对于 WebSocket 可能不需要）
 
 ## 最小可用例子
 
+### 币安 WebSocket Source（简化版）
+
 ```java
-// 实现SourceFunction接口
-public class BinanceWebSocketSource implements SourceFunction<Trade> {
-    private volatile boolean isRunning = true;
-    private WebSocketClient client;
+import org.apache.flink.api.connector.source.*;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.core.io.SimpleVersionedSerializer;
 
-    @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        // 1. 建立WebSocket连接
-        client = new WebSocketClient("wss://stream.binance.com/ws/btcusdt@trade");
+// 定义分片类型（对于 WebSocket，可能只需要一个分片）
+public class BinanceWebSocketSplit implements SourceSplit {
+    private final String splitId;
 
-        // 2. 设置消息监听器
-        client.onMessage(message -> {
-            // 3. 解析JSON消息
-            Trade trade = parseJson(message);
-
-            // 4. 发送到Flink流中
-            synchronized (ctx.getCheckpointLock()) {
-                ctx.collect(trade);
-            }
-        });
-
-        // 5. 保持运行，直到cancel()被调用
-        while (isRunning) {
-            Thread.sleep(100);
-        }
+    public BinanceWebSocketSplit(String splitId) {
+        this.splitId = splitId;
     }
 
     @Override
-    public void cancel() {
-        // 停止标志
-        isRunning = false;
-        // 关闭WebSocket连接
-        if (client != null) {
-            client.close();
-        }
+    public String splitId() {
+        return splitId;
+    }
+}
+
+// 实现 Source 接口
+public class BinanceWebSocketSource implements Source<Trade, BinanceWebSocketSplit, Void> {
+    private final String symbol;  // 交易对，如 "btcusdt"
+
+    public BinanceWebSocketSource(String symbol) {
+        this.symbol = symbol;
+    }
+
+    @Override
+    public Boundedness getBoundedness() {
+        return Boundedness.CONTINUOUS_UNBOUNDED;  // 无界流
+    }
+
+    @Override
+    public SourceReader<Trade, BinanceWebSocketSplit> createReader(
+            SourceReaderContext readerContext) {
+        return new BinanceWebSocketReader(readerContext, symbol);
+    }
+
+    @Override
+    public SplitEnumerator<BinanceWebSocketSplit, Void> createEnumerator(
+            SplitEnumeratorContext<BinanceWebSocketSplit> enumContext) {
+        // 对于 WebSocket，创建一个简单的分片
+        return new BinanceWebSocketSplitEnumerator(enumContext);
+    }
+
+    @Override
+    public SplitEnumerator<BinanceWebSocketSplit, Void> restoreEnumerator(
+            SplitEnumeratorContext<BinanceWebSocketSplit> enumContext, Void checkpoint) {
+        return new BinanceWebSocketSplitEnumerator(enumContext);
+    }
+
+    @Override
+    public SimpleVersionedSerializer<BinanceWebSocketSplit> getSplitSerializer() {
+        return new BinanceWebSocketSplitSerializer();
+    }
+
+    @Override
+    public SimpleVersionedSerializer<Void> getEnumeratorCheckpointSerializer() {
+        return new VoidSerializer();
+    }
+
+    @Override
+    public TypeInformation<Trade> getProducedType() {
+        return TypeInformation.of(Trade.class);
     }
 }
 ```
@@ -112,8 +145,12 @@ public class BinanceWebSocketSource implements SourceFunction<Trade> {
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-// 使用自定义SourceFunction
-DataStream<Trade> trades = env.addSource(new BinanceWebSocketSource());
+// 使用新的 Source API
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 trades.print();
 env.execute();
@@ -121,118 +158,74 @@ env.execute();
 
 ## 实现要点
 
-1. **`run()` 方法中的循环**：通常使用 `while (isRunning)` 保持运行
-2. **`cancel()` 方法设置标志**：让 `run()` 方法退出循环
-3. **使用 `getCheckpointLock()`**：在发送数据时加锁，保证容错一致性
-4. **异常处理**：处理网络异常、解析错误等
+1. **实现 `getBoundedness()`**：指定是有界流还是无界流
+2. **实现 `createReader()`**：创建 SourceReader 实例
+3. **实现 `createEnumerator()`**：创建 SplitEnumerator（对于简单场景可以返回简单实现）
+4. **实现序列化器**：为分片和检查点提供序列化器
 
-## 新 API 推荐
+## 与 Legacy SourceFunction 的对比
 
-Flink 推荐使用新的 `Source` API，它提供了：
-- 更好的性能和可扩展性
-- 更丰富的功能（如动态分区发现）
-- 更好的容错机制
-
-新 API 示例：
-```java
-import org.apache.flink.api.connector.source.Source;
-import org.apache.flink.api.connector.source.SourceReader;
-// ... 更多导入
-
-// 实现 Source 接口而不是 SourceFunction
-public class BinanceSource implements Source<Trade, ...> {
-    // 使用新的 Source API
-}
-```
+| 特性 | Legacy SourceFunction | 新 Source API |
+|------|----------------------|---------------|
+| 接口复杂度 | 简单（2个方法） | 较复杂（多个方法） |
+| 性能 | 一般 | 更好 |
+| 可扩展性 | 有限 | 更好 |
+| 容错机制 | 基础 | 更完善 |
+| 分片支持 | 不支持 | 支持 |
+| 推荐度 | ⚠️ 不推荐 | ✅ 推荐 |
 
 ## 常见错误
 
-### 错误1：忘记实现 cancel() 方法
+### 错误1：忘记实现 getBoundedness()
 
 ```java
-// ❌ 错误：只实现run()，没有实现cancel()
-public class MySource implements SourceFunction<String> {
-    @Override
-    public void run(SourceContext<String> ctx) throws Exception {
-        while (true) {  // 死循环，无法停止
-            ctx.collect("data");
-        }
-    }
-    // 缺少cancel()方法
+// ❌ 错误：没有实现 getBoundedness()
+public class MySource implements Source<String, MySplit, Void> {
+    // 缺少 getBoundedness() 方法
 }
 
-// ✅ 正确：实现两个方法
-public class MySource implements SourceFunction<String> {
-    private volatile boolean isRunning = true;
-
+// ✅ 正确：实现所有必需的方法
+public class MySource implements Source<String, MySplit, Void> {
     @Override
-    public void run(SourceContext<String> ctx) throws Exception {
-        while (isRunning) {
-            ctx.collect("data");
-        }
+    public Boundedness getBoundedness() {
+        return Boundedness.CONTINUOUS_UNBOUNDED;  // 无界流
     }
-
-    @Override
-    public void cancel() {
-        isRunning = false;  // 让run()退出循环
-    }
+    // ... 其他方法
 }
 ```
 
-### 错误2：不使用 volatile 修饰 isRunning
+### 错误2：返回 null 的序列化器
 
 ```java
-// ❌ 错误：isRunning不是volatile，可能导致可见性问题
-private boolean isRunning = true;  // 错误！
-
-// ✅ 正确：使用volatile保证多线程可见性
-private volatile boolean isRunning = true;
-```
-
-### 错误3：在 run() 方法中阻塞导致无法响应 cancel()
-
-```java
-// ❌ 错误：长时间阻塞，无法及时响应cancel()
+// ❌ 错误：返回 null
 @Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (isRunning) {
-        Thread.sleep(10000);  // 阻塞10秒，cancel()调用后要等10秒才退出
-        ctx.collect("data");
-    }
+public SimpleVersionedSerializer<MySplit> getSplitSerializer() {
+    return null;  // 会导致运行时错误
 }
 
-// ✅ 正确：使用较短的sleep，或检查isRunning
+// ✅ 正确：返回有效的序列化器
 @Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (isRunning) {
-        ctx.collect("data");
-        Thread.sleep(100);  // 短时间阻塞，能及时响应cancel()
-    }
+public SimpleVersionedSerializer<MySplit> getSplitSerializer() {
+    return new MySplitSerializer();
 }
 ```
 
-### 错误4：忘记使用 getCheckpointLock()
+### 错误3：在 createReader() 中创建多个实例
 
 ```java
-// ❌ 错误：发送数据时没有加锁
-client.onMessage(message -> {
-    ctx.collect(data);  // 可能导致检查点不一致
-});
-
-// ✅ 正确：使用检查点锁保护
-client.onMessage(message -> {
-    synchronized (ctx.getCheckpointLock()) {
-        ctx.collect(data);  // 保证检查点一致性
-    }
-});
+// ❌ 错误：每次调用都创建新实例（可能导致资源泄漏）
+@Override
+public SourceReader<Trade, BinanceWebSocketSplit> createReader(
+        SourceReaderContext readerContext) {
+    return new BinanceWebSocketReader(readerContext, symbol);
+    // 注意：这是正确的，但需要确保每个 reader 独立管理资源
+}
 ```
 
 ## 什么时候你需要想到这个？
 
-- 当你需要**从自定义数据源读取数据**时（如币安WebSocket）
-- 当你需要**实现实时数据采集**时
-- 当你看到 Flink 代码中有 `addSource(SourceFunction)` 时
-- 当你需要理解 Flink 的**数据源机制**时
-- 当你对比 Flink 和 Kafka Consumer 的实现方式时
-- ⚠️ **注意**：新项目建议使用新的 `Source` API，而不是 `SourceFunction`
-
+- 当你需要**实现自定义数据源**时（如币安 WebSocket）
+- 当你需要**使用 Flink 新 API**时（推荐使用新 API）
+- 当你需要**更好的性能和可扩展性**时（新 API 提供更好的性能）
+- 当你需要**支持数据分片**时（新 API 支持分片）
+- 当你需要**更好的容错机制**时（新 API 提供更完善的容错）

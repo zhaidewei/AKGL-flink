@@ -1,6 +1,6 @@
 # WebSocket消息监听：接收币安数据
 
-> ⚠️ **重要提示**：本文档介绍如何在 `SourceFunction`（Legacy API）中实现 WebSocket 消息监听。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+> ✅ **重要提示**：本文档介绍如何在新的 `SourceReader` API 中实现 WebSocket 消息监听。Flink 推荐使用新的 Source API。
 
 ## 核心概念
 
@@ -17,9 +17,15 @@
 ### 使用 OkHttp
 
 ```java
-public class BinanceSource implements SourceFunction<Trade> {
+import org.apache.flink.api.connector.source.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+public class BinanceSourceReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
+    public void start() {
         OkHttpClient client = new OkHttpClient.Builder().build();
 
         Request request = new Request.Builder()
@@ -32,10 +38,8 @@ public class BinanceSource implements SourceFunction<Trade> {
                 // 1. 解析JSON消息
                 Trade trade = parseJson(text);
 
-                // 2. 发送到Flink流（使用检查点锁保护）
-                synchronized (ctx.getCheckpointLock()) {
-                    ctx.collectWithTimestamp(trade, trade.getTradeTime());
-                }
+                // 2. 放入队列（非阻塞）
+                recordQueue.offer(trade);
             }
 
             @Override
@@ -43,44 +47,71 @@ public class BinanceSource implements SourceFunction<Trade> {
                 logger.error("WebSocket error", t);
             }
         });
-
-        while (isRunning) {
-            Thread.sleep(100);
-        }
     }
+
+    @Override
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        // 从队列中取出数据并发送
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return InputStatus.NOTHING_AVAILABLE;
+    }
+
+    // ... 其他必需的方法
 }
 ```
 
 ### 使用 Java-WebSocket
 
 ```java
-public class BinanceSource implements SourceFunction<Trade> {
+import org.apache.flink.api.connector.source.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+public class BinanceSourceReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private WebSocketClient client;
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        client = new WebSocketClient(new URI("wss://stream.binance.com:9443/ws/btcusdt@trade")) {
-            @Override
-            public void onMessage(String message) {
-                // 1. 解析JSON消息
-                Trade trade = parseJson(message);
+    public void start() {
+        try {
+            client = new WebSocketClient(new URI("wss://stream.binance.com:9443/ws/btcusdt@trade")) {
+                @Override
+                public void onMessage(String message) {
+                    // 1. 解析JSON消息
+                    Trade trade = parseJson(message);
 
-                // 2. 发送到Flink流
-                synchronized (ctx.getCheckpointLock()) {
-                    ctx.collectWithTimestamp(trade, trade.getTradeTime());
+                    // 2. 放入队列（非阻塞）
+                    recordQueue.offer(trade);
                 }
-            }
 
-            @Override
-            public void onError(Exception ex) {
-                logger.error("WebSocket error", ex);
-            }
-        };
+                @Override
+                public void onError(Exception ex) {
+                    logger.error("WebSocket error", ex);
+                }
+            };
 
-        client.connect();
-
-        while (isRunning) {
-            Thread.sleep(100);
+            client.connect();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to connect WebSocket", e);
         }
     }
+
+    @Override
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        // 从队列中取出数据并发送
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return InputStatus.NOTHING_AVAILABLE;
+    }
+
+    // ... 其他必需的方法
 }
 ```
 
@@ -157,15 +188,17 @@ private Trade parseJson(String json) {
 
 ## 关键要点
 
-1. **使用检查点锁**：在发送数据时加锁，保证容错一致性
+1. **使用队列缓冲**：WebSocket 消息在回调中放入队列，在 `pollNext()` 中取出
 2. **异常处理**：解析JSON可能失败，需要捕获异常
 3. **性能考虑**：JSON解析是CPU密集型操作，考虑优化
+4. **非阻塞设计**：使用 `offer()` 和 `poll()` 方法，避免阻塞
 
 ## 什么时候你需要想到这个？
 
 - 当你需要**接收币安 WebSocket 消息**时（实现消息监听器）
 - 当你需要**解析 JSON 数据**时（币安返回的是JSON格式）
-- 当你需要**将外部数据发送到 Flink 流**时（通过SourceContext）
+- 当你需要**将外部数据发送到 Flink 流**时（通过ReaderOutput）
 - 当你需要**处理实时数据流**时（币安交易数据是实时推送的）
-- 当你需要**实现数据源**时（SourceFunction的核心逻辑）
+- 当你需要**实现数据源**时（SourceReader的核心逻辑）
+- 当你使用**新 Source API** 实现 WebSocket 数据源时
 

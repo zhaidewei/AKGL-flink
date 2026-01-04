@@ -100,6 +100,95 @@ JobManager 检测到失败
 重新分配任务到其他 TaskManager
 ```
 
+## Job、JobManager 和 JobMaster 的关系
+
+### 重要概念澄清
+
+**关键理解**：
+1. **Job（作业）**：提交一个 JAR 文件就是一个 Job
+2. **JobManager**：集群中通常**只有一个**（长期运行）
+3. **JobMaster**：每个 Job 有**一个** JobMaster（在 Job 的生命周期内存在）
+
+### 关系图
+
+```
+Flink 集群（长期运行）
+│
+├── JobManager（1 个，长期运行）
+│   ├── Dispatcher（接收作业提交）
+│   ├── ResourceManager（管理资源）
+│   └── 为每个 Job 创建 JobMaster
+│
+└── 多个 Job（可以同时运行多个）
+    ├── Job 1 → JobMaster 1（管理 Job 1 的生命周期）
+    ├── Job 2 → JobMaster 2（管理 Job 2 的生命周期）
+    └── Job 3 → JobMaster 3（管理 Job 3 的生命周期）
+```
+
+### 详细说明
+
+**1. Job（作业）**
+```bash
+# 提交一个 JAR 文件 = 提交一个 Job
+./bin/flink run /path/to/my-job.jar
+```
+- 一个 JAR 文件 = 一个 Job
+- 集群可以**同时运行多个 Job**
+- 每个 Job 是独立的
+
+**2. JobManager（集群主节点）**
+```
+集群启动
+  ↓
+启动 1 个 JobManager（长期运行）
+  ↓
+JobManager 等待接收作业提交
+  ↓
+可以管理多个 Job
+```
+- 集群中通常**只有 1 个 JobManager**（可配置高可用）
+- JobManager **长期运行**，不随 Job 的生命周期结束
+- 一个 JobManager 可以**同时管理多个 Job**
+
+**3. JobMaster（作业主控）**
+```
+Job 1 提交
+  ↓
+JobManager 为 Job 1 创建 JobMaster 1
+  ↓
+JobMaster 1 管理 Job 1 的整个生命周期
+  ↓
+Job 1 完成
+  ↓
+JobMaster 1 销毁
+```
+- 每个 Job 有**一个** JobMaster
+- JobMaster 在 Job **提交时创建**，Job **完成时销毁**
+- 多个 Job 可以**同时运行**，每个都有自己的 JobMaster
+
+### 示例场景
+
+**场景：集群中同时运行 3 个 Job**
+
+```
+集群状态：
+├── JobManager（1 个，长期运行）
+│
+├── Job 1（正在运行）
+│   └── JobMaster 1（管理 Job 1）
+│
+├── Job 2（正在运行）
+│   └── JobMaster 2（管理 Job 2）
+│
+└── Job 3（正在运行）
+    └── JobMaster 3（管理 Job 3）
+```
+
+**关键点**：
+- ✅ **1 个 JobManager**：管理整个集群
+- ✅ **3 个 Job**：同时运行
+- ✅ **3 个 JobMaster**：每个 Job 一个
+
 ## JobManager 的关键组件
 
 ### 1. Dispatcher（调度器）
@@ -109,6 +198,17 @@ JobManager 检测到失败
 - 为每个作业创建 JobMaster
 - 提供 Web UI
 
+**工作流程**：
+```
+作业提交
+  ↓
+Dispatcher 接收
+  ↓
+为作业创建 JobMaster
+  ↓
+JobMaster 管理作业生命周期
+```
+
 ### 2. ResourceManager（资源管理器）
 
 **职责**：
@@ -116,12 +216,28 @@ JobManager 检测到失败
 - 分配和释放 Slot
 - 与外部资源管理器（如 YARN）交互
 
+**工作流程**：
+```
+JobMaster 请求资源
+  ↓
+ResourceManager 查找可用 Slot
+  ↓
+分配 Slot 给 JobMaster
+  ↓
+JobMaster 将任务分配到 Slot
+```
+
 ### 3. JobMaster（作业主控）
 
 **职责**：
 - 管理单个作业的生命周期
 - 调度作业的任务
 - 协调检查点
+
+**生命周期**：
+```
+作业提交 → 创建 JobMaster → 作业运行 → 作业完成 → 销毁 JobMaster
+```
 
 ## 最小可用例子
 
@@ -184,7 +300,19 @@ high-availability.storageDir: hdfs:///flink/ha
 
 ## 常见错误
 
-### 错误1：认为 JobManager 也执行任务
+### 错误1：混淆 JobManager 和 JobMaster
+
+```java
+// ❌ 误解：认为每个 Job 有一个 JobManager
+// 实际上，集群中只有 1 个 JobManager，但每个 Job 有 1 个 JobMaster
+
+// ✅ 正确：理解关系
+// - JobManager：1 个，长期运行，管理整个集群
+// - Job：可以有多个，同时运行
+// - JobMaster：每个 Job 1 个，在 Job 生命周期内存在
+```
+
+### 错误2：认为 JobManager 也执行任务
 
 ```java
 // ❌ 误解：认为 JobManager 也处理数据
@@ -195,7 +323,7 @@ high-availability.storageDir: hdfs:///flink/ha
 // - TaskManager：执行任务
 ```
 
-### 错误2：在代码中直接连接 JobManager
+### 错误3：在代码中直接连接 JobManager
 
 ```java
 // ❌ 错误：在代码中硬编码 JobManager 地址
@@ -208,7 +336,7 @@ StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironm
 // JobManager 地址通过 flink run 命令或配置文件指定
 ```
 
-### 错误3：忽略 JobManager 高可用配置
+### 错误4：忽略 JobManager 高可用配置
 
 ```java
 // ❌ 错误：生产环境不配置高可用
@@ -218,6 +346,157 @@ StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironm
 // 在 flink-conf.yaml 中配置高可用
 ```
 
+## Flink 与 Spark 的对比
+
+如果你熟悉 Spark，可以通过以下对比更好地理解 Flink 的架构：
+
+### 架构对比
+
+| 概念 | Flink | Spark |
+|------|-------|-------|
+| **集群主节点** | JobManager（1 个，长期运行） | Spark Driver（每个应用 1 个） |
+| **作业管理** | JobMaster（每个 Job 1 个） | SparkContext（每个应用 1 个） |
+| **工作节点** | TaskManager（多个） | Executor（多个） |
+| **资源单元** | Slot | Core |
+| **作业提交** | 提交到长期运行的集群 | 每个应用启动自己的 Driver |
+
+### 关键区别
+
+#### 1. 集群模式
+
+**Flink**：
+```
+长期运行的集群
+├── JobManager（1 个，长期运行）
+└── TaskManager（多个，长期运行）
+
+提交多个 Job 到同一个集群
+├── Job 1 → JobMaster 1
+├── Job 2 → JobMaster 2
+└── Job 3 → JobMaster 3
+```
+
+**Spark**：
+```
+每个应用启动自己的集群
+├── Application 1 → Driver 1 + Executors
+├── Application 2 → Driver 2 + Executors
+└── Application 3 → Driver 3 + Executors
+```
+
+**区别**：
+- **Flink**：集群长期运行，多个 Job 共享集群资源
+- **Spark**：每个应用启动自己的 Driver，资源隔离更好但开销更大
+
+#### 2. JobManager vs Spark Driver
+
+**Flink JobManager**：
+- 集群中**只有 1 个**（长期运行）
+- 可以管理**多个 Job**
+- 类似于 Spark 的 **Cluster Manager**（如 YARN ResourceManager）
+
+**Spark Driver**：
+- 每个应用有**1 个 Driver**
+- 只管理**1 个应用**
+- 类似于 Flink 的 **JobMaster**
+
+**类比**：
+```
+Flink:
+  JobManager ≈ Spark 的 YARN ResourceManager（集群级别）
+  JobMaster ≈ Spark 的 Driver（作业级别）
+
+Spark:
+  Driver ≈ Flink 的 JobMaster（作业级别）
+  YARN ResourceManager ≈ Flink 的 JobManager（集群级别）
+```
+
+#### 3. JobMaster vs SparkContext
+
+**Flink JobMaster**：
+- 每个 Job 有 1 个 JobMaster
+- 在 Job 提交时创建，Job 完成时销毁
+- 管理单个 Job 的生命周期
+
+**Spark SparkContext**：
+- 每个应用有 1 个 SparkContext
+- 在应用启动时创建，应用完成时销毁
+- 管理单个应用的生命周期
+
+**相似点**：
+- 都是作业/应用级别的管理组件
+- 都在作业/应用生命周期内存在
+- 都负责调度和协调
+
+#### 4. TaskManager vs Executor
+
+**Flink TaskManager**：
+- 长期运行的工作节点
+- 提供多个 Slot
+- 可以运行多个 Job 的任务
+
+**Spark Executor**：
+- 应用级别的工作节点
+- 提供多个 Core
+- 只运行一个应用的任务
+
+**区别**：
+- **Flink**：TaskManager 长期运行，可以运行多个 Job 的任务
+- **Spark**：Executor 是应用级别的，只运行一个应用的任务
+
+#### 5. Slot vs Core
+
+**Flink Slot**：
+- TaskManager 的资源单元
+- 多个 Slot 共享 TaskManager 资源
+- 可以运行不同 Job 的任务
+
+**Spark Core**：
+- Executor 的计算资源
+- 每个 Core 可以运行一个任务
+- 只运行一个应用的任务
+
+### 作业提交流程对比
+
+**Flink**：
+```
+1. 集群启动（JobManager + TaskManager 长期运行）
+2. 提交 Job 1 → JobManager 创建 JobMaster 1
+3. 提交 Job 2 → JobManager 创建 JobMaster 2
+4. 两个 Job 共享同一个集群
+```
+
+**Spark**：
+```
+1. 提交 Application 1 → 启动 Driver 1 + Executors 1
+2. 提交 Application 2 → 启动 Driver 2 + Executors 2
+3. 两个应用各自独立的集群资源
+```
+
+### 资源利用对比
+
+**Flink**：
+- ✅ **资源共享**：多个 Job 共享 TaskManager 资源
+- ✅ **资源利用率高**：资源可以动态分配给不同 Job
+- ⚠️ **资源隔离较差**：Job 之间可能相互影响
+
+**Spark**：
+- ✅ **资源隔离好**：每个应用有独立的资源
+- ⚠️ **资源利用率较低**：资源不能跨应用共享
+- ⚠️ **启动开销大**：每个应用需要启动 Driver 和 Executors
+
+### 使用场景对比
+
+**Flink 适合**：
+- 长期运行的流处理作业
+- 需要资源共享的场景
+- 多个作业共享集群资源
+
+**Spark 适合**：
+- 批处理作业（虽然也支持流处理）
+- 需要资源隔离的场景
+- 每个应用需要独立资源
+
 ## 什么时候你需要想到这个？
 
 - 当你需要**理解作业如何被调度**时
@@ -226,4 +505,5 @@ StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironm
 - 当你需要**配置 JobManager 高可用**时
 - 当你需要**查看作业状态**时（通过 Web UI）
 - 当你需要**理解检查点如何工作**时
+- 当你需要**从 Spark 迁移到 Flink**时（理解架构差异）
 

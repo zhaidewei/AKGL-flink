@@ -90,35 +90,59 @@ wss://stream.binance.com:9443/ws/btcusdt@kline_5m  // 5分钟K线
 ### 连接单个交易流
 
 ```java
-public class BinanceTradeSource implements SourceFunction<Trade> {
+import org.apache.flink.api.connector.source.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+public class BinanceTradeReader implements SourceReader<Trade, BinanceWebSocketSplit> {
     private static final String WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@trade";
+    private WebSocketClient client;
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+    private volatile boolean isRunning = true;
 
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        WebSocketClient client = new WebSocketClient(new URI(WS_URL)) {
-            @Override
-            public void onMessage(String message) {
-                // 解析JSON
-                Trade trade = parseTradeJson(message);
-
-                // 发送到Flink流
-                synchronized (ctx.getCheckpointLock()) {
-                    ctx.collectWithTimestamp(trade, trade.getTradeTime());
+    public void start() {
+        try {
+            client = new WebSocketClient(new URI(WS_URL)) {
+                @Override
+                public void onMessage(String message) {
+                    // 解析JSON
+                    Trade trade = parseTradeJson(message);
+                    // 放入队列（非阻塞）
+                    recordQueue.offer(trade);
                 }
-            }
 
-            @Override
-            public void onError(Exception ex) {
-                logger.error("WebSocket error", ex);
-            }
-        };
+                @Override
+                public void onError(Exception ex) {
+                    logger.error("WebSocket error", ex);
+                }
+            };
 
-        client.connect();
-
-        while (isRunning) {
-            Thread.sleep(100);
+            client.connect();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to connect WebSocket", e);
         }
     }
+
+    @Override
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return isRunning ? InputStatus.NOTHING_AVAILABLE : InputStatus.END_OF_INPUT;
+    }
+
+    @Override
+    public void close() throws Exception {
+        isRunning = false;
+        if (client != null) {
+            client.close();
+        }
+    }
+
+    // ... 其他必需的方法
 }
 ```
 
@@ -129,14 +153,23 @@ public class BinanceTradeSource implements SourceFunction<Trade> {
 String streams = "btcusdt@trade/ethusdt@trade";
 String url = "wss://stream.binance.com:9443/stream?streams=" + streams;
 
-WebSocketClient client = new WebSocketClient(new URI(url)) {
-    @Override
-    public void onMessage(String message) {
-        // 消息格式：{"stream":"btcusdt@trade","data":{...}}
-        // 需要解析stream字段判断是哪个流
-        parseCombinedStream(message);
+@Override
+public void start() {
+    try {
+        client = new WebSocketClient(new URI(url)) {
+            @Override
+            public void onMessage(String message) {
+                // 消息格式：{"stream":"btcusdt@trade","data":{...}}
+                // 需要解析stream字段判断是哪个流
+                Trade trade = parseCombinedStream(message);
+                recordQueue.offer(trade);
+            }
+        };
+        client.connect();
+    } catch (Exception e) {
+        throw new RuntimeException("Failed to connect WebSocket", e);
     }
-};
+}
 ```
 
 ## 数据解析示例

@@ -1,10 +1,12 @@
-# SourceContext.collectWithTimestamp()：带时间戳的数据
+# SourceReader的时间戳处理：事件时间支持
 
-> ⚠️ **重要提示**：`SourceContext.collectWithTimestamp()` 是 `SourceFunction`（Legacy API）的方法。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+> ✅ **重要提示**：在新 Source API 中，时间戳处理通过 `WatermarkStrategy` 和 `ReaderOutput.collect()` 配合实现。它替代了 Legacy API 中的 `SourceContext.collectWithTimestamp()` 方法。
 
 ## 核心概念
 
-**`collectWithTimestamp(T element, long timestamp)`** 用于发送**带时间戳**的数据到 Flink 流中。这是事件时间（Event Time）处理的关键方法。
+在新 Source API 中，**时间戳处理**主要通过以下方式实现：
+1. **`ReaderOutput.collect()`** - 发送数据（时间戳通过 WatermarkStrategy 分配）
+2. **`WatermarkStrategy`** - 在创建 DataStream 时指定，用于提取时间戳和生成 Watermark
 
 ### 类比理解
 
@@ -15,72 +17,92 @@
 
 ### 核心特点
 
-1. **指定事件时间**：数据本身携带的时间戳
-2. **用于事件时间处理**：支持基于事件时间的窗口、Watermark 等
-3. **处理乱序数据**：Flink 可以根据时间戳处理乱序到达的数据
+1. **分离关注点**：时间戳提取和 Watermark 生成在 WatermarkStrategy 中处理
+2. **更灵活**：可以在创建 DataStream 时指定不同的时间戳策略
+3. **支持事件时间**：完全支持基于事件时间的窗口、Watermark 等
 
-## 源码位置
+## 实现方式
 
-collectWithTimestamp() 方法定义在：
-[flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java](https://github.com/apache/flink/blob/master/flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java)
-
-### 方法签名
+### 方式1：在 WatermarkStrategy 中提取时间戳
 
 ```java
-public interface SourceContext<T> {
-    /**
-     * 发送一个元素到流中，并指定时间戳
-     * @param element 要发送的元素
-     * @param timestamp 时间戳（毫秒，从1970-01-01 00:00:00 UTC开始）
-     */
-    void collectWithTimestamp(T element, long timestamp);
+// 1. 创建 Source
+BinanceWebSocketSource source = new BinanceWebSocketSource("btcusdt");
+
+// 2. 创建 WatermarkStrategy（提取时间戳）
+WatermarkStrategy<Trade> watermarkStrategy = WatermarkStrategy
+    .<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+    .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime());
+
+// 3. 创建 DataStream（自动应用时间戳）
+DataStream<Trade> trades = env.fromSource(
+    source,
+    watermarkStrategy,
+    "Binance Trade Source"
+);
+```
+
+### 方式2：在 SourceReader 中发送带时间戳的数据（高级用法）
+
+对于需要更精细控制的场景，可以在 SourceReader 中直接处理时间戳：
+
+```java
+public class BinanceWebSocketReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    @Override
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            // 发送数据（时间戳会在 WatermarkStrategy 中提取）
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return InputStatus.NOTHING_AVAILABLE;
+    }
 }
 ```
 
 ## 最小可用例子
 
-### 币安WebSocket示例（事件时间）
+### 完整示例
 
 ```java
-public class BinanceSource implements SourceFunction<Trade> {
-    @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        WebSocketClient client = new WebSocketClient("wss://stream.binance.com/ws/btcusdt@trade");
-
-        client.onMessage(message -> {
-            Trade trade = parseJson(message);
-
-            // 获取币安交易数据中的事件时间（交易发生时间）
-            long eventTime = trade.getTradeTime();  // 币安返回的时间戳（毫秒）
-
-            // 使用检查点锁保护
-            synchronized (ctx.getCheckpointLock()) {
-                // 发送带时间戳的数据
-                ctx.collectWithTimestamp(trade, eventTime);
-            }
-        });
-
-        while (isRunning) {
-            Thread.sleep(100);
-        }
-    }
-}
-```
-
-### Trade 数据类示例
-
-```java
+// 1. Trade 数据类（包含时间戳字段）
 public class Trade implements Serializable {
-    private String symbol;        // 交易对，如 "BTCUSDT"
-    private double price;         // 价格
-    private double quantity;     // 数量
-    private long tradeTime;       // 交易时间（事件时间）
+    private String symbol;
+    private double price;
+    private double quantity;
+    private long tradeTime;  // 事件时间（毫秒）
 
-    // getter/setter...
     public long getTradeTime() {
         return tradeTime;
     }
+    // ... getter/setter
 }
+
+// 2. 创建 Source
+BinanceWebSocketSource source = new BinanceWebSocketSource("btcusdt");
+
+// 3. 创建 WatermarkStrategy（提取时间戳并生成 Watermark）
+WatermarkStrategy<Trade> watermarkStrategy = WatermarkStrategy
+    .<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(5))  // 最大乱序时间 5 秒
+    .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime());  // 提取事件时间
+
+// 4. 创建 DataStream
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStream<Trade> trades = env.fromSource(
+    source,
+    watermarkStrategy,
+    "Binance Trade Source"
+);
+
+// 5. 使用事件时间窗口
+trades
+    .keyBy(Trade::getSymbol)
+    .window(TumblingEventTimeWindows.of(Time.minutes(1)))
+    .aggregate(new TradeAggregator())
+    .print();
+
+env.execute();
 ```
 
 ## 时间戳格式
@@ -88,11 +110,11 @@ public class Trade implements Serializable {
 时间戳必须是**毫秒数**，从 1970-01-01 00:00:00 UTC 开始：
 
 ```java
-// 方式1：使用 System.currentTimeMillis()
-long timestamp = System.currentTimeMillis();
-
-// 方式2：从数据中提取（币安返回的时间戳）
+// 方式1：从数据中提取（币安返回的时间戳）
 long timestamp = trade.getTradeTime();
+
+// 方式2：使用 System.currentTimeMillis()
+long timestamp = System.currentTimeMillis();
 
 // 方式3：解析时间字符串
 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -105,38 +127,63 @@ long timestamp = sdf.parse("2024-01-01 12:00:00").getTime();
 
 ```java
 // 币安交易数据包含交易时间，使用事件时间处理
-ctx.collectWithTimestamp(trade, trade.getTradeTime());
+WatermarkStrategy<Trade> watermarkStrategy = WatermarkStrategy
+    .<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+    .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime());
+
+DataStream<Trade> trades = env.fromSource(source, watermarkStrategy, "Binance Source");
 ```
 
 ### 场景2：处理乱序数据
 
 ```java
 // 数据可能乱序到达，但包含事件时间，Flink可以正确处理
-ctx.collectWithTimestamp(data, data.getEventTime());
+WatermarkStrategy<MyEvent> watermarkStrategy = WatermarkStrategy
+    .<MyEvent>forBoundedOutOfOrderness(Duration.ofSeconds(10))
+    .withTimestampAssigner((event, timestamp) -> event.getEventTime());
 ```
 
-## 与 collect() 的区别
+## 与 Legacy API 的对比
 
-| 方法 | 时间戳 | 适用场景 |
-|------|--------|---------|
-| `collect()` | 无（处理时间） | 不需要事件时间 |
-| `collectWithTimestamp()` | 有（事件时间） | 需要事件时间处理 |
+| 特性 | Legacy collectWithTimestamp() | 新 WatermarkStrategy |
+|------|------------------------------|---------------------|
+| 时间戳指定 | 在 collectWithTimestamp() 中 | 在 WatermarkStrategy 中 |
+| Watermark 生成 | 手动调用 emitWatermark() | 自动生成 |
+| 灵活性 | 较低 | 更高 |
+| 推荐度 | ⚠️ 不推荐 | ✅ 推荐 |
 
 ### 示例对比
 
 ```java
-// 使用 collect() - 处理时间模式
-ctx.collect(trade);  // Flink使用当前系统时间
+// Legacy API（不推荐）
+@Override
+public void run(SourceContext<Trade> ctx) throws Exception {
+    synchronized (ctx.getCheckpointLock()) {
+        ctx.collectWithTimestamp(trade, trade.getTradeTime());  // 在 Source 中指定时间戳
+    }
+}
 
-// 使用 collectWithTimestamp() - 事件时间模式
-ctx.collectWithTimestamp(trade, trade.getTradeTime());  // 使用交易实际发生时间
+// 新 API（推荐）
+// 在 SourceReader 中
+@Override
+public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+    output.collect(trade);  // 只发送数据
+    return InputStatus.MORE_AVAILABLE;
+}
+
+// 在创建 DataStream 时
+WatermarkStrategy<Trade> watermarkStrategy = WatermarkStrategy
+    .<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+    .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime());  // 在策略中提取时间戳
+
+DataStream<Trade> trades = env.fromSource(source, watermarkStrategy, "Source");
 ```
 
 ## 注意事项
 
 1. **时间戳单位**：必须是毫秒（不是秒）
 2. **时间戳来源**：应该来自数据本身（事件时间），不是当前系统时间
-3. **建议使用检查点锁**：保证容错一致性
+3. **WatermarkStrategy**：必须在创建 DataStream 时指定
 
 ## 什么时候你需要想到这个？
 
@@ -145,4 +192,3 @@ ctx.collectWithTimestamp(trade, trade.getTradeTime());  // 使用交易实际发
 - 当你需要处理**乱序数据**时（基于事件时间排序）
 - 当你需要**时间相关的计算**时（如计算1分钟内的交易量）
 - 当你实现**实时数据源**时（数据本身包含时间戳）
-

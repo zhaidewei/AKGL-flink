@@ -1,371 +1,335 @@
-# SourceFunction的run()方法：数据生成的核心
+# SourceReader：数据读取的核心组件
 
-> ⚠️ **重要提示**：`SourceFunction` 是 Flink 的 **Legacy API**（遗留 API），位于 `legacy` 包下。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式，新项目建议使用新的 `Source` API。
+> ✅ **重要提示**：`SourceReader` 是 Flink 新 Source API 的核心组件，用于实际读取数据。它替代了 Legacy API 中的 `SourceFunction.run()` 方法。
 
 ## 核心概念
 
-**`run(SourceContext ctx)`** 是 SourceFunction 的**核心方法**，所有数据生成逻辑都在这里实现。这个方法会一直运行，直到 `cancel()` 被调用。
+**SourceReader** 是新 Source API 中**实际读取数据**的组件。它负责从数据源（如币安 WebSocket）读取数据，并通过 `ReaderOutput` 发送到 Flink 流中。
 
 ### 类比理解
 
 这就像：
-- **线程的 run() 方法**：定义了线程要执行的任务
+- **线程的 run() 方法**：定义了要执行的任务
 - **Kafka Consumer 的 poll() 循环**：持续从 Kafka 拉取消息
 - **事件循环**：持续监听事件并处理
 
 ### 核心特点
 
-1. **持续运行**：方法会一直执行，直到被取消
-2. **通过 SourceContext 发送数据**：使用 `ctx.collect()` 发送数据
-3. **需要处理异常**：网络异常、解析错误等
+1. **非阻塞设计**：`pollNext()` 方法必须是非阻塞的
+2. **异步支持**：通过 `isAvailable()` 返回 Future 来支持异步操作
+3. **分片管理**：可以处理多个数据分片
+4. **检查点支持**：通过 `snapshotState()` 支持检查点
 
 ## 源码位置
 
-SourceFunction 的 run() 方法定义在：
-[flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java](https://github.com/apache/flink/blob/master/flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java)
+SourceReader 接口定义在：
+[flink-core/src/main/java/org/apache/flink/api/connector/source/SourceReader.java](https://github.com/apache/flink/blob/master/flink-core/src/main/java/org/apache/flink/api/connector/source/SourceReader.java)
 
-### 方法签名
+### 接口定义（关键方法）
 
 ```java
-public interface SourceFunction<T> {
+public interface SourceReader<T, SplitT extends SourceSplit>
+        extends AutoCloseable, CheckpointListener {
+
     /**
-     * 数据生成的核心方法
-     * @param ctx SourceContext，用于发送数据
+     * 启动读取器
      */
-    void run(SourceContext<T> ctx) throws Exception;
-}
-```
+    void start();
 
-### 执行流程（伪代码）
+    /**
+     * 轮询下一个可用记录（非阻塞）
+     * @param output 用于发送数据的输出对象
+     * @return 输入状态（是否有更多数据）
+     */
+    InputStatus pollNext(ReaderOutput<T> output) throws Exception;
 
-```java
-public class MySource implements SourceFunction<String> {
-    private volatile boolean isRunning = true;
+    /**
+     * 检查点状态快照
+     * @return 当前分片状态列表
+     */
+    List<SplitT> snapshotState(long checkpointId);
 
-    @Override
-    public void run(SourceContext<String> ctx) throws Exception {
-        // 1. 初始化（建立连接等）
-        initialize();
+    /**
+     * 返回一个 Future，表示数据是否可用
+     */
+    CompletableFuture<Void> isAvailable();
 
-        // 2. 主循环：持续生成数据
-        while (isRunning) {
-            // 3. 获取数据（从WebSocket、数据库等）
-            String data = fetchData();
+    /**
+     * 添加分片（由 SplitEnumerator 分配）
+     */
+    void addSplits(List<SplitT> splits);
 
-            // 4. 发送到Flink流中
-            synchronized (ctx.getCheckpointLock()) {
-                ctx.collect(data);
-            }
+    /**
+     * 通知不再有更多分片
+     */
+    void notifyNoMoreSplits();
 
-            // 5. 控制发送频率（可选）
-            Thread.sleep(100);
-        }
-
-        // 6. 清理资源
-        cleanup();
-    }
-
-    @Override
-    public void cancel() {
-        isRunning = false;  // 让run()方法退出循环
-    }
+    /**
+     * 关闭读取器，释放资源
+     */
+    void close() throws Exception;
 }
 ```
 
 ## 最小可用例子
 
-### 简单示例：生成数字序列
+### 币安 WebSocket SourceReader（简化版）
 
 ```java
-public class NumberSource implements SourceFunction<Long> {
-    private volatile boolean isRunning = true;
-    private long count = 0;
+import org.apache.flink.api.connector.source.*;
+import org.apache.flink.core.io.InputStatus;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
-    @Override
-    public void run(SourceContext<Long> ctx) throws Exception {
-        while (isRunning && count < 1000) {
-            // 发送数据
-            synchronized (ctx.getCheckpointLock()) {
-                ctx.collect(count);
-            }
-            count++;
-            Thread.sleep(100);  // 每100ms发送一个数字
-        }
-    }
-
-    @Override
-    public void cancel() {
-        isRunning = false;
-    }
-}
-```
-
-### 币安WebSocket示例（简化版）
-
-> **注意**：此示例需要额外的依赖库（如 WebSocket 客户端和 JSON 解析库）。以下代码仅为概念示例，实际使用时需要添加相应的依赖和实现细节。
-
-```java
-// 需要添加的依赖（Maven）：
-// <dependency>
-//     <groupId>org.java-websocket</groupId>
-//     <artifactId>Java-WebSocket</artifactId>
-//     <version>1.5.3</version>
-// </dependency>
-// <dependency>
-//     <groupId>com.google.code.gson</groupId>
-//     <artifactId>gson</artifactId>
-//     <version>2.10.1</version>
-// </dependency>
-
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
-import com.google.gson.Gson;
-import java.net.URI;
-
-// Trade 数据类（需要自己定义）
-public class Trade {
-    public String symbol;
-    public double price;
-    public double quantity;
-    // ... 其他字段
-}
-
-public class BinanceSource implements SourceFunction<Trade> {
-    private volatile boolean isRunning = true;
+public class BinanceWebSocketReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private final SourceReaderContext context;
+    private final String symbol;
     private WebSocketClient client;
-    private final Gson gson = new Gson();
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+    private volatile boolean isRunning = true;
 
-    @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        // 1. 建立WebSocket连接
-        URI uri = new URI("wss://stream.binance.com/ws/btcusdt@trade");
-        client = new WebSocketClient(uri) {
-            @Override
-            public void onMessage(String message) {
-                try {
-                    // 2. 解析JSON（使用 Gson 或其他 JSON 库）
-                    Trade trade = gson.fromJson(message, Trade.class);
-
-                    // 3. 发送数据（必须加锁，保证容错一致性）
-                    synchronized (ctx.getCheckpointLock()) {
-                        ctx.collect(trade);
-                    }
-                } catch (Exception e) {
-                    // 处理解析错误
-                    System.err.println("Failed to parse message: " + e.getMessage());
-                }
-            }
-
-            @Override
-            public void onOpen(ServerHandshake handshake) {
-                System.out.println("WebSocket connected");
-            }
-
-            @Override
-            public void onClose(int code, String reason, boolean remote) {
-                System.out.println("WebSocket closed: " + reason);
-            }
-
-            @Override
-            public void onError(Exception ex) {
-                System.err.println("WebSocket error: " + ex.getMessage());
-            }
-        };
-
-        // 4. 连接WebSocket
-        client.connect();
-
-        // 5. 保持运行，直到cancel()被调用
-        while (isRunning) {
-            Thread.sleep(100);
-        }
+    public BinanceWebSocketReader(SourceReaderContext context, String symbol) {
+        this.context = context;
+        this.symbol = symbol;
     }
 
     @Override
-    public void cancel() {
-        isRunning = false;
-        if (client != null) {
-            try {
-                client.close();
-            } catch (Exception e) {
-                System.err.println("Error closing WebSocket: " + e.getMessage());
-            }
-        }
-    }
-}
-```
-
-**使用方式**：
-```java
-StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-
-// 使用自定义SourceFunction
-DataStream<Trade> trades = env.addSource(new BinanceSource());
-
-trades.print();
-env.execute("Binance Trade Stream");
-```
-
-## 关键要点
-
-1. **使用 `volatile boolean isRunning`**：让 `cancel()` 可以安全地停止 `run()` 方法
-2. **使用 `getCheckpointLock()`**：在发送数据时加锁，保证检查点一致性
-3. **异常处理**：捕获并处理可能的异常，避免整个作业失败
-4. **资源清理**：在 `cancel()` 或 `run()` 结束时清理资源
-
-## 常见模式
-
-### 模式1：轮询模式
-
-```java
-while (isRunning) {
-    List<Data> dataList = pollFromSource();  // 轮询获取数据
-    for (Data data : dataList) {
-        ctx.collect(data);
-    }
-    Thread.sleep(1000);  // 每秒轮询一次
-}
-```
-
-### 模式2：事件驱动模式（WebSocket）
-
-```java
-source.onEvent(event -> {
-    synchronized (ctx.getCheckpointLock()) {
-        ctx.collect(event);
-    }
-});
-
-while (isRunning) {
-    Thread.sleep(100);  // 保持线程运行
-}
-```
-
-## 常见错误
-
-### 错误1：run() 方法没有循环，立即退出
-
-```java
-// ❌ 错误：run()方法立即返回，数据源立即停止
-@Override
-public void run(SourceContext<String> ctx) throws Exception {
-    ctx.collect("data1");
-    ctx.collect("data2");
-    // 方法结束，数据源停止
-}
-
-// ✅ 正确：使用循环保持运行
-@Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (isRunning) {
-        ctx.collect("data");
-        Thread.sleep(100);
-    }
-}
-```
-
-### 错误2：在 run() 方法中抛出未捕获的异常
-
-```java
-// ❌ 错误：异常导致整个作业失败
-@Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (isRunning) {
-        String data = fetchData();  // 可能抛出异常
-        ctx.collect(data);  // 如果异常，整个作业失败
-    }
-}
-
-// ✅ 正确：捕获异常，避免作业失败
-@Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (isRunning) {
+    public void start() {
+        // 1. 建立 WebSocket 连接
         try {
-            String data = fetchData();
-            synchronized (ctx.getCheckpointLock()) {
-                ctx.collect(data);
-            }
+            client = new WebSocketClient(new URI("wss://stream.binance.com:9443/ws/" + symbol + "@trade")) {
+                @Override
+                public void onMessage(String message) {
+                    try {
+                        // 2. 解析 JSON 消息
+                        Trade trade = parseJson(message);
+                        // 3. 放入队列（非阻塞）
+                        recordQueue.offer(trade);
+                    } catch (Exception e) {
+                        context.sendSourceEventToCoordinator(
+                            new SourceEvent() {
+                                // 发送错误事件
+                            }
+                        );
+                    }
+                }
+
+                @Override
+                public void onError(Exception ex) {
+                    // 处理错误
+                }
+            };
+            client.connect();
         } catch (Exception e) {
-            logger.error("Failed to fetch data", e);
-            // 继续运行，不抛出异常
+            throw new RuntimeException("Failed to connect WebSocket", e);
         }
     }
-}
-```
 
-### 错误3：在 run() 方法中创建资源但忘记清理
+    @Override
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        // 1. 从队列中获取数据（非阻塞）
+        Trade trade = recordQueue.poll();
 
-```java
-// ❌ 错误：创建连接但忘记清理
-@Override
-public void run(SourceContext<String> ctx) throws Exception {
-    WebSocketClient client = new WebSocketClient(...);
-    client.connect();
-    while (isRunning) {
-        // 使用client
-    }
-    // 忘记关闭client，资源泄漏
-}
-
-// ✅ 正确：在finally块或cancel()中清理
-@Override
-public void run(SourceContext<String> ctx) throws Exception {
-    WebSocketClient client = null;
-    try {
-        client = new WebSocketClient(...);
-        client.connect();
-        while (isRunning) {
-            // 使用client
+        if (trade != null) {
+            // 2. 发送数据到 Flink 流
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;  // 还有更多数据
         }
-    } finally {
+
+        // 3. 如果没有数据，返回状态
+        if (isRunning) {
+            return InputStatus.NOTHING_AVAILABLE;  // 暂时没有数据，但还在运行
+        } else {
+            return InputStatus.END_OF_INPUT;  // 输入结束
+        }
+    }
+
+    @Override
+    public List<BinanceWebSocketSplit> snapshotState(long checkpointId) {
+        // 返回当前分片状态（对于 WebSocket，可能不需要状态）
+        return Collections.emptyList();
+    }
+
+    @Override
+    public CompletableFuture<Void> isAvailable() {
+        // 如果队列中有数据，立即返回完成的 Future
+        if (!recordQueue.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        // 否则返回一个等待的 Future（当有新数据时完成）
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        // 这里可以设置一个监听器，当有新数据时完成 Future
+        // 简化示例：返回一个立即完成的 Future（实际应该等待数据）
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public void addSplits(List<BinanceWebSocketSplit> splits) {
+        // 对于 WebSocket，通常只有一个分片
+        // 可以在这里处理分片分配
+    }
+
+    @Override
+    public void notifyNoMoreSplits() {
+        // 通知不再有更多分片
+    }
+
+    @Override
+    public void close() throws Exception {
+        isRunning = false;
         if (client != null) {
             client.close();
         }
     }
+
+    private Trade parseJson(String json) throws Exception {
+        // JSON 解析逻辑
+        // ...
+        return trade;
+    }
 }
 ```
 
-### 错误4：在 run() 方法中不使用 getCheckpointLock()
+## 关键要点
+
+### 1. pollNext() 必须是非阻塞的
 
 ```java
-// ❌ 错误：多线程环境下发送数据没有加锁
-client.onMessage(message -> {
-    ctx.collect(data);  // 可能导致检查点不一致
-});
-
-// ✅ 正确：使用检查点锁
-client.onMessage(message -> {
-    synchronized (ctx.getCheckpointLock()) {
-        ctx.collect(data);
+// ✅ 正确：使用队列，非阻塞
+@Override
+public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+    Trade trade = recordQueue.poll();  // 非阻塞
+    if (trade != null) {
+        output.collect(trade);
+        return InputStatus.MORE_AVAILABLE;
     }
-});
+    return InputStatus.NOTHING_AVAILABLE;
+}
+
+// ❌ 错误：阻塞操作
+@Override
+public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+    Trade trade = recordQueue.take();  // 阻塞！会导致问题
+    output.collect(trade);
+    return InputStatus.MORE_AVAILABLE;
+}
 ```
 
-### 错误5：run() 方法中的循环条件错误
+### 2. 使用队列缓冲数据
 
 ```java
-// ❌ 错误：循环条件错误，无法退出
+// WebSocket 消息在回调中放入队列
+client.onMessage(message -> {
+    Trade trade = parseJson(message);
+    recordQueue.offer(trade);  // 非阻塞放入队列
+});
+
+// pollNext() 从队列中取出数据
 @Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (true) {  // 死循环，即使cancel()被调用也无法退出
-        ctx.collect("data");
+public InputStatus pollNext(ReaderOutput<Trade> output) {
+    Trade trade = recordQueue.poll();  // 非阻塞取出
+    if (trade != null) {
+        output.collect(trade);
+    }
+    // ...
+}
+```
+
+### 3. 使用 isAvailable() 支持异步
+
+```java
+@Override
+public CompletableFuture<Void> isAvailable() {
+    if (!recordQueue.isEmpty()) {
+        return CompletableFuture.completedFuture(null);
+    }
+    // 返回一个 Future，当有新数据时完成
+    CompletableFuture<Void> future = new CompletableFuture<>();
+    // 设置监听器，当队列有新数据时完成 Future
+    return future;
+}
+```
+
+## 与 Legacy SourceFunction.run() 的对比
+
+| 特性 | Legacy SourceFunction.run() | 新 SourceReader |
+|------|----------------------------|-----------------|
+| 执行模式 | 阻塞循环 | 非阻塞轮询 |
+| 数据发送 | SourceContext.collect() | ReaderOutput.collect() |
+| 线程模型 | 单线程阻塞 | 支持异步 |
+| 分片支持 | 不支持 | 支持 |
+| 推荐度 | ⚠️ 不推荐 | ✅ 推荐 |
+
+## 常见错误
+
+### 错误1：pollNext() 中执行阻塞操作
+
+```java
+// ❌ 错误：在 pollNext() 中阻塞
+@Override
+public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+    Trade trade = client.receive();  // 阻塞操作！
+    output.collect(trade);
+    return InputStatus.MORE_AVAILABLE;
+}
+
+// ✅ 正确：使用队列，非阻塞
+@Override
+public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+    Trade trade = recordQueue.poll();  // 非阻塞
+    if (trade != null) {
+        output.collect(trade);
+        return InputStatus.MORE_AVAILABLE;
+    }
+    return InputStatus.NOTHING_AVAILABLE;
+}
+```
+
+### 错误2：忘记实现 isAvailable()
+
+```java
+// ❌ 错误：返回 null
+@Override
+public CompletableFuture<Void> isAvailable() {
+    return null;  // 会导致 NullPointerException
+}
+
+// ✅ 正确：返回有效的 Future
+@Override
+public CompletableFuture<Void> isAvailable() {
+    if (!recordQueue.isEmpty()) {
+        return CompletableFuture.completedFuture(null);
+    }
+    return new CompletableFuture<>();  // 等待数据
+}
+```
+
+### 错误3：在 start() 中执行长时间操作
+
+```java
+// ❌ 错误：在 start() 中阻塞
+@Override
+public void start() {
+    while (true) {  // 阻塞，导致 start() 无法返回
+        // ...
     }
 }
 
-// ✅ 正确：检查isRunning标志
+// ✅ 正确：在 start() 中初始化，实际读取在 pollNext() 中
 @Override
-public void run(SourceContext<String> ctx) throws Exception {
-    while (isRunning) {  // 可以通过cancel()设置isRunning=false退出
-        ctx.collect("data");
-    }
+public void start() {
+    client = new WebSocketClient(...);
+    client.connect();  // 快速初始化
+    // 实际读取在 pollNext() 中通过队列进行
 }
 ```
 
 ## 什么时候你需要想到这个？
 
-- 当你**实现 SourceFunction** 时（核心就是实现这个方法）
+- 当你需要**实现新 Source API 的数据读取**时（核心组件）
 - 当你需要**从外部系统读取数据**时（WebSocket、数据库、文件等）
-- 当你需要理解 Flink 的**数据生成机制**时
-- 当你调试"为什么数据源没有数据"时（检查 run() 方法）
-- 当你需要**优化数据源的性能**时（控制发送频率、批处理等）
-
+- 当你需要理解 Flink 的**非阻塞数据读取机制**时
+- 当你需要**优化数据源性能**时（异步、非阻塞）
+- 当你需要**支持数据分片**时（新 API 支持分片）

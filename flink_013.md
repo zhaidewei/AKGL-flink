@@ -1,10 +1,10 @@
-# SourceContext.collect()：发送数据到流中
+# SourceReader.emitRecord()：发送数据到流中
 
-> ⚠️ **重要提示**：`SourceContext.collect()` 是 `SourceFunction`（Legacy API）的方法。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+> ✅ **重要提示**：在新 Source API 中，使用 `ReaderOutput.collect()` 发送数据到 Flink 流中。它替代了 Legacy API 中的 `SourceContext.collect()` 方法。
 
 ## 核心概念
 
-**`collect(T element)`** 是 SourceContext 中最基本的方法，用于将数据元素发送到 Flink 流中。这是最常用的数据发送方式。
+**`ReaderOutput.collect(T element)`** 是新 Source API 中用于将数据元素发送到 Flink 流中的方法。这是最常用的数据发送方式。
 
 ### 类比理解
 
@@ -17,22 +17,22 @@
 
 1. **最简单的方式**：不需要指定时间戳
 2. **适用于处理时间模式**：Flink 会自动分配处理时间
-3. **线程安全**：可以在多线程环境中调用（但建议加锁）
+3. **非阻塞**：可以在 `pollNext()` 中调用
 
 ## 源码位置
 
-collect() 方法定义在：
-[flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java](https://github.com/apache/flink/blob/master/flink-runtime/src/main/java/org/apache/flink/streaming/api/functions/source/legacy/SourceFunction.java)
+ReaderOutput.collect() 方法定义在：
+[flink-core/src/main/java/org/apache/flink/api/connector/source/ReaderOutput.java](https://github.com/apache/flink/blob/master/flink-core/src/main/java/org/apache/flink/api/connector/source/ReaderOutput.java)
 
 ### 方法签名
 
 ```java
-public interface SourceContext<T> {
+public interface ReaderOutput<T> {
     /**
      * 发送一个元素到流中（不带时间戳）
-     * @param element 要发送的元素
+     * @param record 要发送的元素
      */
-    void collect(T element);
+    void collect(T record);
 }
 ```
 
@@ -41,37 +41,42 @@ public interface SourceContext<T> {
 ### 简单示例
 
 ```java
-public class SimpleSource implements SourceFunction<String> {
+public class SimpleSourceReader implements SourceReader<String, MySplit> {
     @Override
-    public void run(SourceContext<String> ctx) throws Exception {
+    public InputStatus pollNext(ReaderOutput<String> output) throws Exception {
         // 发送字符串数据
-        ctx.collect("hello");
-        ctx.collect("world");
-        ctx.collect("flink");
+        output.collect("hello");
+        output.collect("world");
+        output.collect("flink");
+        return InputStatus.MORE_AVAILABLE;
     }
 }
 ```
 
-### 币安WebSocket示例
+### 币安 WebSocket 示例
 
 ```java
-public class BinanceSource implements SourceFunction<Trade> {
+public class BinanceWebSocketReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        WebSocketClient client = new WebSocketClient("wss://stream.binance.com/ws/btcusdt@trade");
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        // 1. 从队列中获取数据（非阻塞）
+        Trade trade = recordQueue.poll();
 
-        client.onMessage(message -> {
-            Trade trade = parseJson(message);
-
-            // 使用检查点锁保护（推荐做法）
-            synchronized (ctx.getCheckpointLock()) {
-                ctx.collect(trade);  // 发送交易数据
-            }
-        });
-
-        while (isRunning) {
-            Thread.sleep(100);
+        if (trade != null) {
+            // 2. 发送数据到 Flink 流
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
         }
+
+        return InputStatus.NOTHING_AVAILABLE;
+    }
+
+    // WebSocket 消息回调
+    private void onWebSocketMessage(String message) {
+        Trade trade = parseJson(message);
+        recordQueue.offer(trade);  // 放入队列
     }
 }
 ```
@@ -81,43 +86,55 @@ public class BinanceSource implements SourceFunction<Trade> {
 ### 场景1：处理时间模式（不需要事件时间）
 
 ```java
-// 如果不需要基于事件时间处理，使用collect()即可
-ctx.collect(data);
+// 如果不需要基于事件时间处理，使用 collect() 即可
+output.collect(data);
 ```
 
 ### 场景2：数据源不提供时间戳
 
 ```java
-// 如果数据源（如某些API）不提供时间戳，使用collect()
-ctx.collect(apiResponse);
+// 如果数据源（如某些API）不提供时间戳，使用 collect()
+output.collect(apiResponse);
 ```
 
 ## 注意事项
 
-1. **建议使用检查点锁**：在多线程或需要容错的场景下
-2. **不要存储 SourceContext**：只在 run() 方法中使用
-3. **异常处理**：collect() 可能抛出异常，需要处理
+1. **在 pollNext() 中调用**：只能在 `pollNext()` 方法中使用
+2. **非阻塞**：方法本身是非阻塞的
+3. **不需要锁**：不需要像 Legacy API 那样使用检查点锁
 
-### 推荐模式
+## 与 Legacy SourceContext.collect() 的区别
+
+| 特性 | Legacy SourceContext.collect() | 新 ReaderOutput.collect() |
+|------|-------------------------------|---------------------------|
+| 调用位置 | run() 方法中 | pollNext() 方法中 |
+| 是否需要锁 | 需要（getCheckpointLock()） | 不需要 |
+| 阻塞性 | 可能阻塞 | 非阻塞 |
+| 推荐度 | ⚠️ 不推荐 | ✅ 推荐 |
+
+### 示例对比
 
 ```java
-synchronized (ctx.getCheckpointLock()) {
-    ctx.collect(data);
+// Legacy API（不推荐）
+@Override
+public void run(SourceContext<Trade> ctx) throws Exception {
+    synchronized (ctx.getCheckpointLock()) {
+        ctx.collect(trade);  // 需要加锁
+    }
+}
+
+// 新 API（推荐）
+@Override
+public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+    output.collect(trade);  // 不需要加锁
+    return InputStatus.MORE_AVAILABLE;
 }
 ```
 
-## 与 collectWithTimestamp() 的区别
-
-| 方法 | 时间戳 | 适用场景 |
-|------|--------|---------|
-| `collect()` | 无（使用处理时间） | 处理时间模式 |
-| `collectWithTimestamp()` | 有（事件时间） | 事件时间模式 |
-
 ## 什么时候你需要想到这个？
 
-- 当你**在 SourceFunction 中发送数据**时（最基本的方法）
+- 当你**在 SourceReader 中发送数据**时（最基本的方法）
 - 当你使用**处理时间模式**时（不需要事件时间）
 - 当你需要**简单快速地发送数据**时（不需要时间戳）
 - 当你实现**简单的数据源**时（如生成测试数据）
-- 当你学习 Flink 的**数据发送机制**时（从最简单的方法开始）
-
+- 当你学习 Flink 的**新数据发送机制**时（从最简单的方法开始）

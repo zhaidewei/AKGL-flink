@@ -1,6 +1,6 @@
 # WebSocket客户端库选择：OkHttp vs Java-WebSocket
 
-> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。以下库选择建议适用于 Legacy API 实现。
+> ✅ **重要提示**：本文档中的示例代码使用新的 `Source` API 实现。Flink 推荐使用新的 Source API，它提供了更好的性能和可扩展性。
 
 ## 核心概念
 
@@ -37,13 +37,18 @@
 ```java
 import okhttp3.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import org.apache.flink.api.connector.source.*;
 
-public class BinanceOkHttpSource implements SourceFunction<Trade> {
+public class BinanceOkHttpReader implements SourceReader<Trade, BinanceWebSocketSplit> {
     private OkHttpClient client;
     private WebSocket webSocket;
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+    private volatile boolean isRunning = true;
 
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
+    public void start() {
         client = new OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)  // 保持连接
             .build();
@@ -56,9 +61,7 @@ public class BinanceOkHttpSource implements SourceFunction<Trade> {
             @Override
             public void onMessage(WebSocket webSocket, String text) {
                 Trade trade = parseJson(text);
-                synchronized (ctx.getCheckpointLock()) {
-                    ctx.collectWithTimestamp(trade, trade.getTradeTime());
-                }
+                recordQueue.offer(trade);  // 非阻塞放入队列
             }
 
             @Override
@@ -66,19 +69,27 @@ public class BinanceOkHttpSource implements SourceFunction<Trade> {
                 logger.error("WebSocket error", t);
             }
         });
-
-        while (isRunning) {
-            Thread.sleep(100);
-        }
     }
 
     @Override
-    public void cancel() {
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return isRunning ? InputStatus.NOTHING_AVAILABLE : InputStatus.END_OF_INPUT;
+    }
+
+    @Override
+    public void close() throws Exception {
         isRunning = false;
         if (webSocket != null) {
             webSocket.close(1000, "Normal closure");
         }
     }
+
+    // ... 其他必需的方法
 }
 ```
 
@@ -106,51 +117,66 @@ public class BinanceOkHttpSource implements SourceFunction<Trade> {
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import java.net.URI;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import org.apache.flink.api.connector.source.*;
 
-public class BinanceJavaWebSocketSource implements SourceFunction<Trade> {
+public class BinanceJavaWebSocketReader implements SourceReader<Trade, BinanceWebSocketSplit> {
     private WebSocketClient client;
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+    private volatile boolean isRunning = true;
 
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        client = new WebSocketClient(new URI("wss://stream.binance.com/ws/btcusdt@trade")) {
-            @Override
-            public void onMessage(String message) {
-                Trade trade = parseJson(message);
-                synchronized (ctx.getCheckpointLock()) {
-                    ctx.collectWithTimestamp(trade, trade.getTradeTime());
+    public void start() {
+        try {
+            client = new WebSocketClient(new URI("wss://stream.binance.com/ws/btcusdt@trade")) {
+                @Override
+                public void onMessage(String message) {
+                    Trade trade = parseJson(message);
+                    recordQueue.offer(trade);  // 非阻塞放入队列
                 }
-            }
 
-            @Override
-            public void onOpen(ServerHandshake handshake) {
-                logger.info("WebSocket connected");
-            }
+                @Override
+                public void onOpen(ServerHandshake handshake) {
+                    logger.info("WebSocket connected");
+                }
 
-            @Override
-            public void onClose(int code, String reason, boolean remote) {
-                logger.info("WebSocket closed: " + reason);
-            }
+                @Override
+                public void onClose(int code, String reason, boolean remote) {
+                    logger.info("WebSocket closed: " + reason);
+                }
 
-            @Override
-            public void onError(Exception ex) {
-                logger.error("WebSocket error", ex);
-            }
-        };
+                @Override
+                public void onError(Exception ex) {
+                    logger.error("WebSocket error", ex);
+                }
+            };
 
-        client.connect();
-
-        while (isRunning) {
-            Thread.sleep(100);
+            client.connect();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to connect WebSocket", e);
         }
     }
 
     @Override
-    public void cancel() {
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return isRunning ? InputStatus.NOTHING_AVAILABLE : InputStatus.END_OF_INPUT;
+    }
+
+    @Override
+    public void close() throws Exception {
         isRunning = false;
         if (client != null) {
             client.close();
         }
     }
+
+    // ... 其他必需的方法
 }
 ```
 
@@ -176,4 +202,5 @@ public class BinanceJavaWebSocketSource implements SourceFunction<Trade> {
 - 当你需要**处理 WebSocket 连接**时（建立、重连、错误处理）
 - 当你需要**优化数据源性能**时（选择合适的库）
 - 当你需要**处理币安 WebSocket API**时
+- 当你使用**新 Source API** 实现 WebSocket 数据源时
 

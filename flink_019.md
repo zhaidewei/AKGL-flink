@@ -1,6 +1,6 @@
 # JSON解析：将币安消息转换为Java对象
 
-> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。以下 JSON 解析方法适用于 Legacy API 实现。
+> ✅ **重要提示**：本文档中的示例代码使用新的 `SourceReader` API 实现。Flink 推荐使用新的 Source API。以下 JSON 解析方法适用于新 API 实现。
 
 ## 核心概念
 
@@ -31,9 +31,11 @@
 ```java
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.apache.flink.api.connector.source.*;
 
-public class BinanceSource implements SourceFunction<Trade> {
+public class BinanceSourceReader implements SourceReader<Trade, BinanceWebSocketSplit> {
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
 
     private Trade parseJson(String json) throws Exception {
         JsonNode node = objectMapper.readTree(json);
@@ -46,6 +48,16 @@ public class BinanceSource implements SourceFunction<Trade> {
         trade.setIsBuyerMaker(node.get("m").asBoolean());     // 是否为买方主动
 
         return trade;
+    }
+
+    // 在 WebSocket 消息回调中使用
+    private void onMessage(String message) {
+        try {
+            Trade trade = parseJson(message);
+            recordQueue.offer(trade);
+        } catch (Exception e) {
+            logger.error("Failed to parse message", e);
+        }
     }
 }
 ```
@@ -96,9 +108,11 @@ private Trade parseJson(String json) throws Exception {
 ```java
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.apache.flink.api.connector.source.*;
 
-public class BinanceSource implements SourceFunction<Trade> {
+public class BinanceSourceReader implements SourceReader<Trade, BinanceWebSocketSplit> {
     private final Gson gson = new Gson();
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
 
     private Trade parseJson(String json) {
         JsonObject obj = gson.fromJson(json, JsonObject.class);
@@ -111,6 +125,16 @@ public class BinanceSource implements SourceFunction<Trade> {
         trade.setIsBuyerMaker(obj.get("m").getAsBoolean());
 
         return trade;
+    }
+
+    // 在 WebSocket 消息回调中使用
+    private void onMessage(String message) {
+        try {
+            Trade trade = parseJson(message);
+            recordQueue.offer(trade);
+        } catch (Exception e) {
+            logger.error("Failed to parse message", e);
+        }
     }
 }
 ```
@@ -136,33 +160,48 @@ public class BinanceSource implements SourceFunction<Trade> {
 ## 完整示例
 
 ```java
-public class BinanceSource implements SourceFunction<Trade> {
+import org.apache.flink.api.connector.source.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+public class BinanceSourceReader implements SourceReader<Trade, BinanceWebSocketSplit> {
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+    private WebSocketClient client;
+    private volatile boolean isRunning = true;
 
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        WebSocketClient client = new WebSocketClient(new URI("wss://stream.binance.com:9443/ws/btcusdt@trade")) {
-            @Override
-            public void onMessage(String message) {
-                try {
-                    // 解析JSON
-                    Trade trade = parseJson(message);
+    public void start() {
+        try {
+            client = new WebSocketClient(new URI("wss://stream.binance.com:9443/ws/btcusdt@trade")) {
+                @Override
+                public void onMessage(String message) {
+                    try {
+                        // 解析JSON
+                        Trade trade = parseJson(message);
 
-                    // 发送到Flink流
-                    synchronized (ctx.getCheckpointLock()) {
-                        ctx.collectWithTimestamp(trade, trade.getTradeTime());
+                        // 放入队列（非阻塞）
+                        recordQueue.offer(trade);
+                    } catch (Exception e) {
+                        logger.error("Failed to parse message: " + message, e);
                     }
-                } catch (Exception e) {
-                    logger.error("Failed to parse message: " + message, e);
                 }
-            }
-        };
+            };
 
-        client.connect();
-
-        while (isRunning) {
-            Thread.sleep(100);
+            client.connect();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to connect WebSocket", e);
         }
+    }
+
+    @Override
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return isRunning ? InputStatus.NOTHING_AVAILABLE : InputStatus.END_OF_INPUT;
     }
 
     private Trade parseJson(String json) throws Exception {
@@ -177,6 +216,16 @@ public class BinanceSource implements SourceFunction<Trade> {
 
         return trade;
     }
+
+    @Override
+    public void close() throws Exception {
+        isRunning = false;
+        if (client != null) {
+            client.close();
+        }
+    }
+
+    // ... 其他必需的方法
 }
 ```
 
