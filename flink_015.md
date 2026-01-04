@@ -1,8 +1,12 @@
 # WebSocket客户端库选择：OkHttp vs Java-WebSocket
 
+> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。以下库选择建议适用于 Legacy API 实现。
+
 ## 核心概念
 
 实现币安 WebSocket 数据源时，需要选择合适的 WebSocket 客户端库。常用的有 **OkHttp** 和 **Java-WebSocket**。
+
+> **注意**：以下依赖版本仅为示例，实际使用时请检查各库的最新稳定版本。
 
 ### 两个主要选择
 
@@ -24,7 +28,7 @@
 <dependency>
     <groupId>com.squareup.okhttp3</groupId>
     <artifactId>okhttp</artifactId>
-    <version>4.12.0</version>
+    <version>4.12.0</version>  <!-- 请检查最新版本 -->
 </dependency>
 ```
 
@@ -92,7 +96,7 @@ public class BinanceOkHttpSource implements SourceFunction<Trade> {
 <dependency>
     <groupId>org.java-websocket</groupId>
     <artifactId>Java-WebSocket</artifactId>
-    <version>1.5.4</version>
+    <version>1.5.4</version>  <!-- 请检查最新版本 -->
 </dependency>
 ```
 

@@ -1,5 +1,7 @@
 # 重连间隔策略：指数退避算法
 
+> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 **指数退避（Exponential Backoff）** 是一种重连策略：每次重连失败后，等待时间逐渐增加（指数增长），避免频繁重连对服务器造成压力。

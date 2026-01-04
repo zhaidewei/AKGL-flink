@@ -1,5 +1,7 @@
 # WebSocket连接异常处理：捕获和记录错误
 
+> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 WebSocket 连接可能因为网络问题、服务器问题等导致异常，需要实现异常处理机制，确保数据源能够正确处理错误。

@@ -23,6 +23,8 @@ execute() 方法在：
 
 ### 执行流程（伪代码）
 
+> **注意**：以下为概念性伪代码，实际实现可能更复杂。优化步骤通常在 `getStreamGraph()` 内部完成。
+
 ```java
 public class StreamExecutionEnvironment {
     // 存储所有转换操作
@@ -30,14 +32,22 @@ public class StreamExecutionEnvironment {
 
     // 执行作业
     public JobExecutionResult execute(String jobName) throws Exception {
-        // 1. 根据transformations构建执行图（StreamGraph）
-        StreamGraph streamGraph = getStreamGraph(jobName);
+        // 1. 保存原始转换列表（用于错误恢复）
+        final List<Transformation<?>> originalTransformations =
+            new ArrayList<>(transformations);
 
-        // 2. 优化执行图
-        StreamGraph optimizedGraph = optimize(streamGraph);
+        // 2. 根据transformations构建执行图（StreamGraph）
+        // 注意：getStreamGraph() 内部会进行优化
+        StreamGraph streamGraph = getStreamGraph();
 
-        // 3. 提交到执行器（本地或集群）
-        return executor.execute(optimizedGraph);
+        // 3. 设置作业名称（如果提供）
+        if (jobName != null) {
+            streamGraph.setJobName(jobName);
+        }
+
+        // 4. 提交到执行器（本地或集群）
+        // 执行器会根据环境类型（本地/集群）执行相应的逻辑
+        return execute(streamGraph);
     }
 
     // 添加转换时，只是记录，不执行
@@ -48,6 +58,11 @@ public class StreamExecutionEnvironment {
     }
 }
 ```
+
+**关键点**：
+- `getStreamGraph()` 方法内部会进行优化，不需要单独的 `optimize()` 步骤
+- 执行图构建时会根据转换链生成执行计划
+- 实际的执行逻辑在 `execute(StreamGraph)` 方法中，会根据配置选择本地或集群执行
 
 ## 最小可用例子
 

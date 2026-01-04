@@ -1,5 +1,7 @@
 # SourceContext.collectWithTimestamp()：带时间戳的数据
 
+> ⚠️ **重要提示**：`SourceContext.collectWithTimestamp()` 是 `SourceFunction`（Legacy API）的方法。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 **`collectWithTimestamp(T element, long timestamp)`** 用于发送**带时间戳**的数据到 Flink 流中。这是事件时间（Event Time）处理的关键方法。

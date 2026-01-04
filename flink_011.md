@@ -1,5 +1,7 @@
 # SourceFunction的cancel()方法：优雅停止
 
+> ⚠️ **重要提示**：`SourceFunction` 是 Flink 的 **Legacy API**（遗留 API）。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 **`cancel()`** 方法用于**优雅停止**数据源。当 Flink 需要停止数据源时（比如作业取消、故障恢复），会调用这个方法。

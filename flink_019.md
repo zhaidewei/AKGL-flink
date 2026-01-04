@@ -1,8 +1,12 @@
 # JSON解析：将币安消息转换为Java对象
 
+> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。以下 JSON 解析方法适用于 Legacy API 实现。
+
 ## 核心概念
 
 币安 WebSocket 返回的是 JSON 格式的字符串，需要解析为 Java 对象（如 Trade）才能发送到 Flink 流中。
+
+> **注意**：以下依赖版本仅为示例，实际使用时请检查各库的最新稳定版本。
 
 ### 常用JSON库
 
@@ -18,7 +22,7 @@
 <dependency>
     <groupId>com.fasterxml.jackson.core</groupId>
     <artifactId>jackson-databind</artifactId>
-    <version>2.15.2</version>
+    <version>2.15.2</version>  <!-- 请检查最新版本 -->
 </dependency>
 ```
 
@@ -83,7 +87,7 @@ private Trade parseJson(String json) throws Exception {
 <dependency>
     <groupId>com.google.code.gson</groupId>
     <artifactId>gson</artifactId>
-    <version>2.10.1</version>
+    <version>2.10.1</version>  <!-- 请检查最新版本 -->
 </dependency>
 ```
 

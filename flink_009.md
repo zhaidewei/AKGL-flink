@@ -1,8 +1,10 @@
 # SourceFunction接口：自定义数据源的基础
 
+> ⚠️ **重要提示**：`SourceFunction` 是 Flink 的 **Legacy API**（遗留 API），位于 `legacy` 包下，并被标记为 `@Internal`。Flink 推荐使用新的 `Source` API（`org.apache.flink.api.connector.source.Source`），它提供了更好的性能和功能。只有在特定场景下（如需要与旧代码兼容）才建议使用 `SourceFunction`。
+
 ## 核心概念
 
-**SourceFunction** 是 Flink 中所有自定义数据源的**基础接口**。如果你想从币安 WebSocket 读取数据，必须实现这个接口。
+**SourceFunction** 是 Flink 中自定义数据源的**传统接口**（Legacy API）。如果你想从币安 WebSocket 读取数据，可以实现这个接口，但建议优先考虑使用新的 `Source` API。
 
 ### 类比理解
 
@@ -124,6 +126,25 @@ env.execute();
 3. **使用 `getCheckpointLock()`**：在发送数据时加锁，保证容错一致性
 4. **异常处理**：处理网络异常、解析错误等
 
+## 新 API 推荐
+
+Flink 推荐使用新的 `Source` API，它提供了：
+- 更好的性能和可扩展性
+- 更丰富的功能（如动态分区发现）
+- 更好的容错机制
+
+新 API 示例：
+```java
+import org.apache.flink.api.connector.source.Source;
+import org.apache.flink.api.connector.source.SourceReader;
+// ... 更多导入
+
+// 实现 Source 接口而不是 SourceFunction
+public class BinanceSource implements Source<Trade, ...> {
+    // 使用新的 Source API
+}
+```
+
 ## 什么时候你需要想到这个？
 
 - 当你需要**从自定义数据源读取数据**时（如币安WebSocket）
@@ -131,4 +152,5 @@ env.execute();
 - 当你看到 Flink 代码中有 `addSource(SourceFunction)` 时
 - 当你需要理解 Flink 的**数据源机制**时
 - 当你对比 Flink 和 Kafka Consumer 的实现方式时
+- ⚠️ **注意**：新项目建议使用新的 `Source` API，而不是 `SourceFunction`
 

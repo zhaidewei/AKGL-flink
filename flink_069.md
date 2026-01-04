@@ -1,5 +1,7 @@
 # 币安Ticker数据模型：设计行情数据类
 
+> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的数据模型设计。
+
 ## 核心概念
 
 设计币安 Ticker（24小时行情）数据的 Java 类，用于表示币安 WebSocket 返回的行情数据。

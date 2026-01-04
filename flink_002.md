@@ -22,30 +22,66 @@ DataStream 的 map 方法在：
 
 [flink-runtime/src/main/java/org/apache/flink/streaming/api/datastream/DataStream.java](https://github.com/apache/flink/blob/master/flink-runtime/src/main/java/org/apache/flink/streaming/api/datastream/DataStream.java)
 
-### 核心机制（伪代码）
+### 核心机制（概念性伪代码）
+
+> **注意**：以下为简化版概念性伪代码，用于说明不可变性的原理。实际实现通过 `map()` → `transform()` → `doTransform()` 的调用链完成，并且返回的是 `SingleOutputStreamOperator<R>`（DataStream 的子类）。
 
 ```java
 public class DataStream<T> {
     // 原始的transformation（不可变）
     protected final Transformation<T> transformation;
+    protected final StreamExecutionEnvironment environment;
 
     // map方法：返回新的DataStream，不修改当前DataStream
-    public <R> DataStream<R> map(MapFunction<T, R> mapper) {
-        // 1. 创建一个新的Transformation
-        OneInputTransformation<T, R> transform = new OneInputTransformation<>(
-            this.transformation,  // 父转换（当前流的转换）
-            "Map",                // 操作名称
-            new StreamMap<>(clean(mapper)),  // 实际的map算子
-            getType(),            // 输入类型
-            TypeExtractor.getMapReturnTypes(...)  // 输出类型
+    // 实际返回类型是 SingleOutputStreamOperator<R>
+    public <R> SingleOutputStreamOperator<R> map(MapFunction<T, R> mapper) {
+        // 1. 提取输出类型信息
+        TypeInformation<R> outType = TypeExtractor.getMapReturnTypes(
+            clean(mapper),
+            getType(),
+            Utils.getCallLocationName(),
+            true
         );
 
-        // 2. 基于新Transformation创建新的DataStream
-        return new DataStream<>(this.environment, transform);
-        // 注意：原来的DataStream（this）完全没有被修改
+        // 2. 调用 transform 方法（间接调用链）
+        return transform("Map", outType, new StreamMap<>(clean(mapper)));
+    }
+
+    // transform 方法（实际实现）
+    protected <R> SingleOutputStreamOperator<R> transform(
+            String operatorName,
+            TypeInformation<R> outTypeInfo,
+            OneInputStreamOperator<T, R> operator) {
+
+        // 3. 创建 OneInputTransformation
+        // 注意：实际使用 StreamOperatorFactory，这里简化表示
+        OneInputTransformation<T, R> resultTransform = new OneInputTransformation<>(
+            this.transformation,              // 父转换（当前流的转换）
+            operatorName,                     // 操作名称（如 "Map"）
+            SimpleOperatorFactory.of(operator), // 算子工厂（包装算子）
+            outTypeInfo,                      // 输出类型
+            environment.getParallelism(),     // 并行度
+            false                              // parallelismConfigured标志
+        );
+
+        // 4. 创建新的 DataStream（实际是 SingleOutputStreamOperator）
+        SingleOutputStreamOperator<R> returnStream =
+            new SingleOutputStreamOperator<>(environment, resultTransform);
+
+        // 5. 将转换添加到环境（用于后续构建执行图）
+        environment.addOperator(resultTransform);
+
+        // 6. 返回新流（原来的DataStream完全不变）
+        return returnStream;
     }
 }
 ```
+
+**关键理解**：
+1. `map()` 方法不直接创建 `OneInputTransformation`，而是通过 `transform()` → `doTransform()` 间接完成
+2. 实际返回类型是 `SingleOutputStreamOperator<R>`，它是 `DataStream<R>` 的子类
+3. 创建 Transformation 时需要提供并行度等参数
+4. 新的 Transformation 会被添加到环境的 `transformations` 列表中
 
 ### 关键理解
 

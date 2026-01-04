@@ -26,20 +26,34 @@ StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironm
 **工作原理（伪代码）**：
 ```java
 public static StreamExecutionEnvironment getExecutionEnvironment() {
-    // 1. 检查是否有预设的工厂（测试环境等）
+    return getExecutionEnvironment(new Configuration());
+}
+
+public static StreamExecutionEnvironment getExecutionEnvironment(Configuration config) {
+    // 1. 首先检查 ThreadLocal 中的工厂（用于测试环境等）
+    // 这允许测试框架或特定上下文设置自定义环境
     if (threadLocalContextEnvironmentFactory != null) {
-        return factory.createExecutionEnvironment();
+        return threadLocalContextEnvironmentFactory.createExecutionEnvironment(config);
     }
 
-    // 2. 检查是否在集群中运行
-    if (在集群中) {
-        return 集群环境;
+    // 2. 检查全局上下文工厂（用于集群提交等场景）
+    // 当通过命令行提交作业时，Flink 会设置这个工厂
+    if (contextEnvironmentFactory != null) {
+        return contextEnvironmentFactory.createExecutionEnvironment(config);
     }
 
-    // 3. 默认：创建本地环境
-    return createLocalEnvironment();
+    // 3. 默认情况：创建本地执行环境
+    // 这适用于在 IDE 中直接运行或 standalone 模式
+    return createLocalEnvironment(config);
 }
 ```
+
+**关键理解**：
+- Flink 使用**工厂模式**来选择执行环境，而不是直接"检查是否在集群中"
+- `threadLocalContextEnvironmentFactory`：用于测试框架等场景，优先级最高
+- `contextEnvironmentFactory`：用于集群提交等场景，通过命令行提交时会设置
+- 默认情况：创建本地环境，适合开发和测试
+- 在集群中运行时，通常是通过 `flink run` 命令提交，此时会设置相应的工厂
 
 **使用场景**：
 - **开发和测试**：自动使用本地环境

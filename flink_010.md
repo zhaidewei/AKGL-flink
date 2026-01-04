@@ -1,5 +1,7 @@
 # SourceFunction的run()方法：数据生成的核心
 
+> ⚠️ **重要提示**：`SourceFunction` 是 Flink 的 **Legacy API**（遗留 API），位于 `legacy` 包下。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式，新项目建议使用新的 `Source` API。
+
 ## 核心概念
 
 **`run(SourceContext ctx)`** 是 SourceFunction 的**核心方法**，所有数据生成逻辑都在这里实现。这个方法会一直运行，直到 `cancel()` 被调用。
@@ -100,33 +102,80 @@ public class NumberSource implements SourceFunction<Long> {
 
 ### 币安WebSocket示例（简化版）
 
+> **注意**：此示例需要额外的依赖库（如 WebSocket 客户端和 JSON 解析库）。以下代码仅为概念示例，实际使用时需要添加相应的依赖和实现细节。
+
 ```java
+// 需要添加的依赖（Maven）：
+// <dependency>
+//     <groupId>org.java-websocket</groupId>
+//     <artifactId>Java-WebSocket</artifactId>
+//     <version>1.5.3</version>
+// </dependency>
+// <dependency>
+//     <groupId>com.google.code.gson</groupId>
+//     <artifactId>gson</artifactId>
+//     <version>2.10.1</version>
+// </dependency>
+
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
+import com.google.gson.Gson;
+import java.net.URI;
+
+// Trade 数据类（需要自己定义）
+public class Trade {
+    public String symbol;
+    public double price;
+    public double quantity;
+    // ... 其他字段
+}
+
 public class BinanceSource implements SourceFunction<Trade> {
     private volatile boolean isRunning = true;
     private WebSocketClient client;
+    private final Gson gson = new Gson();
 
     @Override
     public void run(SourceContext<Trade> ctx) throws Exception {
         // 1. 建立WebSocket连接
-        client = new WebSocketClient("wss://stream.binance.com/ws/btcusdt@trade");
+        URI uri = new URI("wss://stream.binance.com/ws/btcusdt@trade");
+        client = new WebSocketClient(uri) {
+            @Override
+            public void onMessage(String message) {
+                try {
+                    // 2. 解析JSON（使用 Gson 或其他 JSON 库）
+                    Trade trade = gson.fromJson(message, Trade.class);
 
-        // 2. 设置消息处理器
-        client.onMessage(message -> {
-            try {
-                // 3. 解析JSON
-                Trade trade = parseJson(message);
-
-                // 4. 发送数据（必须加锁，保证容错一致性）
-                synchronized (ctx.getCheckpointLock()) {
-                    ctx.collect(trade);
+                    // 3. 发送数据（必须加锁，保证容错一致性）
+                    synchronized (ctx.getCheckpointLock()) {
+                        ctx.collect(trade);
+                    }
+                } catch (Exception e) {
+                    // 处理解析错误
+                    System.err.println("Failed to parse message: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                // 处理解析错误
-                logger.error("Failed to parse message", e);
             }
-        });
 
-        // 5. 保持运行
+            @Override
+            public void onOpen(ServerHandshake handshake) {
+                System.out.println("WebSocket connected");
+            }
+
+            @Override
+            public void onClose(int code, String reason, boolean remote) {
+                System.out.println("WebSocket closed: " + reason);
+            }
+
+            @Override
+            public void onError(Exception ex) {
+                System.err.println("WebSocket error: " + ex.getMessage());
+            }
+        };
+
+        // 4. 连接WebSocket
+        client.connect();
+
+        // 5. 保持运行，直到cancel()被调用
         while (isRunning) {
             Thread.sleep(100);
         }
@@ -136,10 +185,25 @@ public class BinanceSource implements SourceFunction<Trade> {
     public void cancel() {
         isRunning = false;
         if (client != null) {
-            client.close();
+            try {
+                client.close();
+            } catch (Exception e) {
+                System.err.println("Error closing WebSocket: " + e.getMessage());
+            }
         }
     }
 }
+```
+
+**使用方式**：
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+// 使用自定义SourceFunction
+DataStream<Trade> trades = env.addSource(new BinanceSource());
+
+trades.print();
+env.execute("Binance Trade Stream");
 ```
 
 ## 关键要点

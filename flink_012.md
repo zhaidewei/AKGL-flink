@@ -1,5 +1,7 @@
 # SourceContext：数据发送的上下文对象
 
+> ⚠️ **重要提示**：`SourceContext` 是 `SourceFunction`（Legacy API）的内部接口。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 **SourceContext** 是 SourceFunction 中用于**发送数据到 Flink 流**的上下文对象。它提供了发送数据、设置时间戳、发送 Watermark 等方法。

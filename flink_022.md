@@ -1,5 +1,7 @@
 # WebSocket自动重连：实现重连逻辑
 
+> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 WebSocket 连接可能因为网络问题、服务器重启等原因断开，需要实现**自动重连机制**，确保数据源能够持续运行。

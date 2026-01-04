@@ -1,5 +1,7 @@
 # 建立WebSocket连接：在SourceFunction中初始化
 
+> ⚠️ **重要提示**：本文档介绍如何在 `SourceFunction`（Legacy API）中建立 WebSocket 连接。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 在 SourceFunction 的 `run()` 方法中建立 WebSocket 连接，这是实现币安数据源的第一步。

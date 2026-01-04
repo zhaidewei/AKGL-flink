@@ -1,5 +1,7 @@
 # WebSocket消息监听：接收币安数据
 
+> ⚠️ **重要提示**：本文档介绍如何在 `SourceFunction`（Legacy API）中实现 WebSocket 消息监听。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 实现 WebSocket 消息监听器，接收币安推送的交易数据，并发送到 Flink 流中。

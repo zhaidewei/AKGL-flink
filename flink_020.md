@@ -1,5 +1,7 @@
 # emit数据到Flink流：连接WebSocket和DataStream
 
+> ⚠️ **重要提示**：本文档介绍如何使用 `SourceContext`（Legacy API）将数据发送到 Flink 流。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 将解析后的币安交易数据通过 `SourceContext.collectWithTimestamp()` 发送到 Flink 流中，这是连接 WebSocket 数据源和 Flink DataStream 的关键步骤。

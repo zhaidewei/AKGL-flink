@@ -1,5 +1,7 @@
 # 构建完整Source：整合WebSocket和数据模型
 
+> ⚠️ **重要提示**：本文档介绍如何使用 `SourceFunction`（Legacy API）构建完整的数据源。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 整合 WebSocket 连接、JSON 解析和数据模型，构建完整的币安数据源。这是实现 SourceFunction 的完整流程。

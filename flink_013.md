@@ -1,5 +1,7 @@
 # SourceContext.collect()：发送数据到流中
 
+> ⚠️ **重要提示**：`SourceContext.collect()` 是 `SourceFunction`（Legacy API）的方法。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的实现方式。
+
 ## 核心概念
 
 **`collect(T element)`** 是 SourceContext 中最基本的方法，用于将数据元素发送到 Flink 流中。这是最常用的数据发送方式。
