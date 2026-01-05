@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 // 按交易对分组
 KeyedStream<Trade, String> keyed = trades.keyBy(trade -> trade.getSymbol());
@@ -48,7 +52,11 @@ keyed.process(new KeyedProcessFunction<String, Trade, String>() {
 
 ```java
 // 假设SourceFunction接收所有交易对的数据
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 // 按交易对分组
 KeyedStream<Trade, String> keyed = trades.keyBy(trade -> trade.getSymbol());

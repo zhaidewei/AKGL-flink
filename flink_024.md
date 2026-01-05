@@ -72,8 +72,13 @@ DataStream<String> upperWords = words.map(new UpperCaseMap());
 ### 币安交易数据示例
 
 ```java
-// 从币安WebSocket获取交易数据
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+// 注意：Trade 类的定义见 flink_068.md
+// 从币安WebSocket获取交易数据（使用新Source API）
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 提取价格
 DataStream<Double> prices = trades.map(trade -> trade.getPrice());
@@ -93,7 +98,11 @@ DataStream<String> numbers = env.fromElements("1", "2", "3");
 DataStream<Integer> ints = numbers.map(s -> Integer.parseInt(s));
 
 // Trade → String
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<String> symbols = trades.map(trade -> trade.getSymbol());
 
 // Trade → PriceInfo（自定义类型）

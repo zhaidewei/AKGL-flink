@@ -46,7 +46,11 @@ public class PriceTracker extends KeyedProcessFunction<String, Trade, String> {
 }
 
 // 使用
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 KeyedStream<Trade, String> keyed = trades.keyBy(trade -> trade.getSymbol());
 
 // 每个交易对（BTC、ETH等）有独立的状态
@@ -58,7 +62,11 @@ keyed.process(new PriceTracker()).print();
 ### 场景：跟踪每个交易对的最新价格
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 KeyedStream<Trade, String> keyed = trades.keyBy(trade -> trade.getSymbol());
 
 keyed.process(new KeyedProcessFunction<String, Trade, String>() {

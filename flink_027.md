@@ -67,7 +67,11 @@ public class HighPriceFilter implements FilterFunction<Trade> {
 }
 
 // 使用
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<Trade> highPriceTrades = trades.filter(new HighPriceFilter(50000));
 ```
 

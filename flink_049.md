@@ -20,7 +20,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 滑动窗口：窗口大小1分钟，滑动间隔30秒
 trades.keyBy(trade -> trade.getSymbol())
@@ -57,7 +61,11 @@ trades.keyBy(trade -> trade.getSymbol())
 ### 滑动平均价格
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 滑动窗口：窗口1分钟，滑动30秒
 // 计算最近1分钟的平均价格，每30秒更新一次

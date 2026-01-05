@@ -23,7 +23,11 @@
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
 // 默认使用处理时间
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 处理时间模式下，时间戳是Flink处理数据时的系统时间
 trades.map(trade -> {
@@ -36,7 +40,11 @@ trades.map(trade -> {
 
 ```java
 // 处理时间模式下，Flink自动使用系统时间
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 在ProcessFunction中获取处理时间
 trades.process(new ProcessFunction<Trade, Trade>() {
@@ -57,7 +65,11 @@ trades.process(new ProcessFunction<Trade, Trade>() {
 
 ```java
 // 如果不需要基于事件时间处理，使用处理时间最简单
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 处理时间窗口（每5秒统计一次）
 trades.keyBy(trade -> trade.getSymbol())

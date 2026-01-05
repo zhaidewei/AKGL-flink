@@ -20,7 +20,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 滚动窗口：1分钟，不重叠
 trades.keyBy(trade -> trade.getSymbol())
@@ -60,7 +64,11 @@ trades.keyBy(trade -> trade.getSymbol())
 ### 统计每分钟交易量
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 滚动窗口：1分钟
 trades.keyBy(trade -> trade.getSymbol())

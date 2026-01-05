@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // aggregate：自定义聚合，计算平均价格
 trades.keyBy(trade -> trade.getSymbol())
@@ -92,7 +96,11 @@ public class AveragePriceAggregator implements AggregateFunction<Trade, AvgPrice
 ### 计算平均价格
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 trades.keyBy(trade -> trade.getSymbol())
       .window(TumblingEventTimeWindows.of(Time.minutes(1)))

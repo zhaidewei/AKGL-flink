@@ -64,7 +64,11 @@ DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
 
 ```java
 // 推荐：使用内置策略
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
     WatermarkStrategy.<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))

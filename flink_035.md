@@ -22,7 +22,11 @@
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置事件时间（从Trade中提取时间戳）
 DataStream<Trade> withTimestamps = trades.assignTimestampsAndWatermarks(
@@ -57,7 +61,11 @@ public class Trade implements Serializable {
 ### 使用事件时间
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 1. 提取事件时间戳
 DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(

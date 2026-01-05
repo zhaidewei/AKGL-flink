@@ -1,6 +1,6 @@
 # 币安Trade数据模型：设计交易数据类
 
-> ⚠️ **重要提示**：本文档中的示例代码使用 `SourceFunction`（Legacy API）实现。Flink 推荐使用新的 `Source` API。本文档主要介绍 Legacy API 的数据模型设计。
+> ✅ **重要提示**：本文档中的示例代码使用新的 `Source` API 实现。Flink 推荐使用新的 Source API，它提供了更好的性能和可扩展性。
 
 ## 核心概念
 
@@ -107,35 +107,41 @@ public class TradeParser {
 }
 ```
 
-## 在SourceFunction中使用
+## 在新Source API中使用
 
 ```java
-public class BinanceSource implements SourceFunction<Trade> {
+// 在 SourceReader 中使用 Trade 类
+public class BinanceWebSocketReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
+
     @Override
-    public void run(SourceContext<Trade> ctx) throws Exception {
-        WebSocketClient client = new WebSocketClient(...) {
-            @Override
-            public void onMessage(String message) {
-                try {
-                    // 解析JSON为Trade对象
-                    Trade trade = TradeParser.parse(message);
+    public InputStatus pollNext(ReaderOutput<Trade> output) throws Exception {
+        Trade trade = recordQueue.poll();
+        if (trade != null) {
+            output.collect(trade);
+            return InputStatus.MORE_AVAILABLE;
+        }
+        return InputStatus.NOTHING_AVAILABLE;
+    }
 
-                    // 发送到Flink流
-                    synchronized (ctx.getCheckpointLock()) {
-                        ctx.collectWithTimestamp(trade, trade.getTradeTime());
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to parse trade", e);
-                }
-            }
-        };
-
-        client.connect();
-        while (isRunning) {
-            Thread.sleep(100);
+    // 在 WebSocket 回调中解析并放入队列
+    private void onWebSocketMessage(String message) {
+        try {
+            Trade trade = TradeParser.parse(message);
+            recordQueue.offer(trade);
+        } catch (Exception e) {
+            logger.error("Failed to parse trade", e);
         }
     }
 }
+
+// 使用方式
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 ```
 
 ## 关键要点

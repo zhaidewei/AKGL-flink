@@ -20,7 +20,11 @@ TimestampAssigner 接口在：
 ### 方式1：Lambda 表达式（推荐）
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 DataStream<Trade> withTimestamps = trades.assignTimestampsAndWatermarks(
     WatermarkStrategy.<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))
@@ -48,7 +52,11 @@ DataStream<Trade> withTimestamps = trades.assignTimestampsAndWatermarks(
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 从Trade对象中提取tradeTime字段作为事件时间
 DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(

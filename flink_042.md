@@ -18,13 +18,19 @@ assignTimestampsAndWatermarks() 方法在：
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+// 使用新Source API创建DataStream（推荐方式：在fromSource中直接指定WatermarkStrategy）
+WatermarkStrategy<Trade> watermarkStrategy = WatermarkStrategy
+    .<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))
+    .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime());
 
-// 设置时间戳和Watermark
-DataStream<Trade> withTimestamps = trades.assignTimestampsAndWatermarks(
-    WatermarkStrategy.<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))
-        .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime())
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    watermarkStrategy,
+    "Binance Source"
 );
+
+// 或者，如果DataStream已经创建，可以使用assignTimestampsAndWatermarks
+// DataStream<Trade> withTimestamps = trades.assignTimestampsAndWatermarks(watermarkStrategy);
 
 // 现在可以使用事件时间窗口
 withTimestamps.keyBy(trade -> trade.getSymbol())
@@ -36,14 +42,19 @@ withTimestamps.keyBy(trade -> trade.getSymbol())
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+// 使用新Source API，在创建DataStream时直接指定WatermarkStrategy（推荐）
+WatermarkStrategy<Trade> watermarkStrategy = WatermarkStrategy
+    .<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))
+    .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime());
 
-// 1. 设置Watermark策略（最大乱序10秒）
-// 2. 提取时间戳（从Trade的tradeTime字段）
-DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(
-    WatermarkStrategy.<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))
-        .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime())
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    watermarkStrategy,
+    "Binance Source"
 );
+
+// 如果使用assignTimestampsAndWatermarks方式（也支持）
+// DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(watermarkStrategy);
 
 // 使用事件时间窗口
 withEventTime.keyBy(trade -> trade.getSymbol())

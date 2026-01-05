@@ -55,8 +55,12 @@ public class PriceExtractor implements MapFunction<Trade, Double> {
     }
 }
 
-// 使用
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+// 使用（新Source API）
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<Double> prices = trades.map(new PriceExtractor());
 ```
 
@@ -72,7 +76,11 @@ public class PriceMapFunction implements MapFunction<Trade, Double> {
     }
 }
 
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<Double> prices = trades.map(new PriceMapFunction());
 ```
 

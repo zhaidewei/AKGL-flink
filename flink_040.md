@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 周期性生成Watermark（默认每200ms）
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
@@ -60,7 +64,11 @@ env.getConfig().setAutoWatermarkInterval(100);
 // 或500ms（更少）
 env.getConfig().setAutoWatermarkInterval(500);
 
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
     WatermarkStrategy.<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))
         .withTimestampAssigner((trade, timestamp) -> trade.getTradeTime())
@@ -79,7 +87,11 @@ DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 周期性生成Watermark（每200ms）
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(

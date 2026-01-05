@@ -72,7 +72,11 @@ DataStream<String> longWords = words.filter(new LongWordFilter());
 ### 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 只保留BTC交易
 DataStream<Trade> btcTrades = trades.filter(trade -> trade.getSymbol().equals("BTCUSDT"));

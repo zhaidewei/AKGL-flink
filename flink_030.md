@@ -29,7 +29,11 @@ keyBy() 方法在：
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 按交易对分组
 KeyedStream<Trade, String> keyedTrades = trades.keyBy(trade -> trade.getSymbol());
@@ -74,7 +78,11 @@ KeyedStream<Trade, String> keyed = trades.keyBy(new SymbolKeySelector());
 ### 按交易对分组
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 按交易对分组（BTC、ETH等）
 KeyedStream<Trade, String> keyedBySymbol = trades.keyBy(trade -> trade.getSymbol());

@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置最大乱序时间：10秒
 // 意味着：如果当前Watermark是12:00:10，那么12:00:00之前的数据应该已经到达
@@ -52,7 +56,11 @@ withWatermark.keyBy(trade -> trade.getSymbol())
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 币安数据可能因为网络延迟乱序到达
 // 设置10秒的乱序容忍度

@@ -20,7 +20,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 没有窗口：无法聚合（流是无限的）
 // trades.sum("quantity");  // ❌ 无法对无限流求和
@@ -37,7 +41,11 @@ trades.keyBy(trade -> trade.getSymbol())
 ### 场景：统计每分钟交易量
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 问题：如何统计"每分钟"的交易量？
 // 流是无限的，没有"每分钟"的概念
@@ -83,7 +91,11 @@ trades.keyBy(trade -> trade.getSymbol())
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 统计每个交易对每分钟的交易量
 trades.keyBy(trade -> trade.getSymbol())

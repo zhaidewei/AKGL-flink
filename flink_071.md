@@ -98,7 +98,11 @@ public class BinanceTradeSource implements SourceFunction<Trade> {
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
 // 使用完整的SourceFunction
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 // 处理数据
 trades.keyBy(trade -> trade.getSymbol())

@@ -48,7 +48,11 @@ Watermark推进（最大乱序10秒）:
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置Watermark：告诉系统时间进度
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
@@ -68,7 +72,11 @@ withWatermark.keyBy(trade -> trade.getSymbol())
 ### 场景：统计每分钟交易量
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置Watermark：最大乱序10秒
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(

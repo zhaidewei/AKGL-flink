@@ -107,7 +107,11 @@ public class TradeListFlatMap implements FlatMapFunction<List<Trade>, Trade> {
 
 ```java
 // 只输出满足条件的元素
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<Trade> largeTrades = trades.flatMap((trade, out) -> {
     if (trade.getPrice() * trade.getQuantity() > 10000) {
         out.collect(trade);  // 只输出大额交易
@@ -120,7 +124,11 @@ DataStream<Trade> largeTrades = trades.flatMap((trade, out) -> {
 
 ```java
 // 一个交易产生多个事件
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<TradeEvent> events = trades.flatMap((trade, out) -> {
     // 产生价格事件
     out.collect(new PriceEvent(trade.getSymbol(), trade.getPrice()));
@@ -159,7 +167,11 @@ lines.flatMap((s, out) -> {
 
 ```java
 // 假设一个消息包含多个交易对的数据
-DataStream<MultiTradeMessage> messages = env.addSource(new BinanceSource());
+DataStream<MultiTradeMessage> messages = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 展开为单个交易
 DataStream<Trade> trades = messages.flatMap((message, out) -> {
@@ -173,7 +185,11 @@ DataStream<Trade> trades = messages.flatMap((message, out) -> {
 
 ```java
 // 一个交易产生多个分析事件
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 DataStream<AnalysisEvent> events = trades.flatMap((trade, out) -> {
     // 价格变化事件
     out.collect(new PriceChangeEvent(trade));

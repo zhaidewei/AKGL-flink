@@ -49,7 +49,11 @@ public class TradeListTracker extends KeyedProcessFunction<String, Trade, String
 ### 存储最近N笔交易
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 trades.keyBy(trade -> trade.getSymbol())
       .process(new KeyedProcessFunction<String, Trade, List<Trade>>() {

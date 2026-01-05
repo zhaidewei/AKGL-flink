@@ -30,7 +30,11 @@
 ### 使用事件时间解决
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 使用事件时间，即使数据乱序到达也能正确处理
 DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(
@@ -89,8 +93,16 @@ trades.assignTimestampsAndWatermarks(...)
 ```java
 // 从多个币安WebSocket连接获取数据
 // 不同连接的数据到达时间不同，但需要按事件时间合并
-DataStream<Trade> stream1 = env.addSource(new BinanceSource1());
-DataStream<Trade> stream2 = env.addSource(new BinanceSource2());
+DataStream<Trade> stream1 = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source 1"
+);
+DataStream<Trade> stream2 = env.fromSource(
+    new BinanceWebSocketSource("ethusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source 2"
+);
 
 DataStream<Trade> merged = stream1.union(stream2)
     .assignTimestampsAndWatermarks(...);

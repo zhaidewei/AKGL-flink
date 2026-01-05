@@ -20,7 +20,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 会话窗口：如果5分钟内没有新数据，关闭窗口
 trades.keyBy(trade -> trade.getSymbol())
@@ -57,7 +61,11 @@ trades.keyBy(trade -> trade.getSymbol())
 ### 交易会话统计
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 会话窗口：如果3分钟内没有新交易，关闭窗口
 // 用于识别"交易会话"（连续交易的时间段）
@@ -71,7 +79,11 @@ trades.keyBy(trade -> trade.getSymbol())
 
 ```java
 // 如果用户5分钟内没有活动，关闭会话窗口
-DataStream<UserActivity> activities = env.addSource(new ActivitySource());
+DataStream<UserActivity> activities = env.fromSource(
+    new ActivityWebSocketSource(),
+    WatermarkStrategy.noWatermarks(),
+    "Activity Source"
+);
 
 activities.keyBy(activity -> activity.getUserId())
           .window(EventTimeSessionWindows.withGap(Time.minutes(5)))

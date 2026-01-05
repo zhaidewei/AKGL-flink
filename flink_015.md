@@ -40,8 +40,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.flink.api.connector.source.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BinanceOkHttpReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private static final Logger logger = LoggerFactory.getLogger(BinanceOkHttpReader.class);
     private OkHttpClient client;
     private WebSocket webSocket;
     private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
@@ -120,8 +123,11 @@ import java.net.URI;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.flink.api.connector.source.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BinanceJavaWebSocketReader implements SourceReader<Trade, BinanceWebSocketSplit> {
+    private static final Logger logger = LoggerFactory.getLogger(BinanceJavaWebSocketReader.class);
     private WebSocketClient client;
     private final BlockingQueue<Trade> recordQueue = new LinkedBlockingQueue<>();
     private volatile boolean isRunning = true;

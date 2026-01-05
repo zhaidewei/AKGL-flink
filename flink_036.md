@@ -25,7 +25,11 @@ StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironm
 // 设置时间特性为摄入时间
 env.setStreamTimeCharacteristic(TimeCharacteristic.IngestionTime);
 
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 摄入时间窗口
 trades.keyBy(trade -> trade.getSymbol())

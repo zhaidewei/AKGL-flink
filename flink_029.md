@@ -74,8 +74,12 @@ public class BatchTradeFlatMap implements FlatMapFunction<BatchTradeMessage, Tra
     }
 }
 
-// 使用
-DataStream<BatchTradeMessage> batches = env.addSource(new BinanceBatchSource());
+// 使用（新Source API）
+DataStream<BatchTradeMessage> batches = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Batch Source"
+);
 DataStream<Trade> trades = batches.flatMap(new BatchTradeFlatMap());
 ```
 

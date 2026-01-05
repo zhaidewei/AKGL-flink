@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置最大延迟时间：10秒
 // 如果数据延迟超过10秒，会被视为"延迟数据"
@@ -55,7 +59,11 @@ WatermarkStrategy.forBoundedOutOfOrderness(Duration.ofSeconds(10));
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 币安数据特点：
 // - 通常延迟1-5秒

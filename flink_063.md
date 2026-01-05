@@ -47,7 +47,11 @@ public class PriceMapTracker extends KeyedProcessFunction<String, Trade, String>
 ### 存储多个交易对的价格
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 trades.keyBy(trade -> "all")  // 所有交易对共享一个key
       .process(new KeyedProcessFunction<String, Trade, String>() {

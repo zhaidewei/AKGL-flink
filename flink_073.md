@@ -14,7 +14,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 trades.keyBy(trade -> trade.getSymbol())
       .process(new KeyedProcessFunction<String, Trade, TradeVolume>() {

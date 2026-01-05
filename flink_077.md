@@ -33,7 +33,11 @@ env.setRestartStrategy(RestartStrategies.fixedDelayRestart(
     Time.seconds(10)  // 每次重启间隔10秒
 ));
 
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 // ... 处理逻辑
 
 env.execute("Binance Trade Processing");
@@ -97,7 +101,11 @@ env.setStateBackend(new FsStateBackend("file:///checkpoints"));
 env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3, Time.seconds(10)));
 
 // 处理逻辑
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 trades.keyBy(trade -> trade.getSymbol())
       .window(TumblingEventTimeWindows.of(Time.minutes(1)))
       .sum("quantity")

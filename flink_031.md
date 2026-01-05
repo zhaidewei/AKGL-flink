@@ -33,7 +33,11 @@ KeySelector 接口定义在：
 ### 方式1：Lambda 表达式（推荐）
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 直接使用Lambda
 KeyedStream<Trade, String> keyed = trades.keyBy(trade -> trade.getSymbol());

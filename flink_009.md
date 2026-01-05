@@ -132,6 +132,65 @@ public class BinanceWebSocketSource implements Source<Trade, BinanceWebSocketSpl
     public SimpleVersionedSerializer<Void> getEnumeratorCheckpointSerializer() {
         return new VoidSerializer();
     }
+}
+
+// 以下辅助类需要实现：
+
+// 1. BinanceWebSocketSplitEnumerator: 管理数据分片
+// 对于 WebSocket 这种单流数据源，可以实现一个简单的枚举器
+class BinanceWebSocketSplitEnumerator implements SplitEnumerator<BinanceWebSocketSplit, Void> {
+    private final SplitEnumeratorContext<BinanceWebSocketSplit> context;
+
+    public BinanceWebSocketSplitEnumerator(SplitEnumeratorContext<BinanceWebSocketSplit> context) {
+        this.context = context;
+    }
+
+    @Override
+    public void start() {
+        // 对于 WebSocket，创建一个分片并分配给 reader
+        BinanceWebSocketSplit split = new BinanceWebSocketSplit("split-0");
+        context.assignSplit(split, 0);  // 分配给第一个 reader
+    }
+
+    // ... 其他必需的方法实现
+}
+
+// 2. BinanceWebSocketSplitSerializer: 序列化分片
+class BinanceWebSocketSplitSerializer implements SimpleVersionedSerializer<BinanceWebSocketSplit> {
+    @Override
+    public int getVersion() {
+        return 1;
+    }
+
+    @Override
+    public byte[] serialize(BinanceWebSocketSplit split) {
+        // 序列化 splitId
+        return split.splitId().getBytes();
+    }
+
+    @Override
+    public BinanceWebSocketSplit deserialize(int version, byte[] serialized) {
+        // 反序列化
+        return new BinanceWebSocketSplit(new String(serialized));
+    }
+}
+
+// 3. VoidSerializer: 序列化 Void 类型（用于检查点）
+class VoidSerializer implements SimpleVersionedSerializer<Void> {
+    @Override
+    public int getVersion() {
+        return 1;
+    }
+
+    @Override
+    public byte[] serialize(Void obj) {
+        return new byte[0];
+    }
+
+    @Override
+    public Void deserialize(int version, byte[] serialized) {
+        return null;
+    }
 
     @Override
     public TypeInformation<Trade> getProducedType() {

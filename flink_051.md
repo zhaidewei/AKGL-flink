@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // reduce：增量聚合，计算总交易量
 trades.keyBy(trade -> trade.getSymbol())
@@ -45,7 +49,11 @@ reduce过程:
 ### 计算总交易量
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 trades.keyBy(trade -> trade.getSymbol())
       .window(TumblingEventTimeWindows.of(Time.minutes(1)))

@@ -13,7 +13,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // process：全量处理，可以访问窗口中的所有元素
 trades.keyBy(trade -> trade.getSymbol())
@@ -83,7 +87,11 @@ public class TradeWindowProcessor extends ProcessWindowFunction<Trade, TradeSumm
 ### 统计窗口详细信息
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 trades.keyBy(trade -> trade.getSymbol())
       .window(TumblingEventTimeWindows.of(Time.minutes(1)))

@@ -14,7 +14,11 @@
 ### 输出到控制台
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 // 简单输出
 trades.print();
@@ -47,7 +51,11 @@ trades.addSink(new FileSink<>(...));
 ### 输出处理结果
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 // 1. 输出原始数据
 trades.print("Raw Trades");

@@ -159,10 +159,14 @@ public class BinanceWebSocketReader implements SourceReader<Trade, BinanceWebSoc
             return CompletableFuture.completedFuture(null);
         }
         // 否则返回一个等待的 Future（当有新数据时完成）
+        // 注意：这是一个占位符实现。实际实现中，应该：
+        // 1. 创建一个 CompletableFuture
+        // 2. 在 WebSocket 的 onMessage 回调中，当有新数据放入队列时，完成这个 Future
+        // 3. 可以使用一个监听器机制，当队列从空变为非空时，完成 Future
         CompletableFuture<Void> future = new CompletableFuture<>();
-        // 这里可以设置一个监听器，当有新数据时完成 Future
-        // 简化示例：返回一个立即完成的 Future（实际应该等待数据）
-        return CompletableFuture.completedFuture(null);
+        // TODO: 实现实际的异步等待机制
+        // 例如：使用一个监听器，当 recordQueue.offer() 成功时，完成 future
+        return future;
     }
 
     @Override

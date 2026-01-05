@@ -49,7 +49,11 @@ public class PriceTracker extends KeyedProcessFunction<String, Trade, String> {
 ### 跟踪每个交易对的最新价格
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 trades.keyBy(trade -> trade.getSymbol())
       .process(new KeyedProcessFunction<String, Trade, PriceChange>() {

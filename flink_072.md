@@ -17,7 +17,11 @@
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
 // 1. 获取交易数据
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 // 2. 设置事件时间
 DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(
@@ -82,7 +86,11 @@ public class PriceChangeAggregator implements AggregateFunction<Trade, PriceChan
 ### 实时价格监控
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceTradeSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Trade Source"
+);
 
 DataStream<Trade> withEventTime = trades.assignTimestampsAndWatermarks(
     WatermarkStrategy.<Trade>forBoundedOutOfOrderness(Duration.ofSeconds(10))

@@ -49,7 +49,11 @@ public class KeyedStream<T, KEY> extends DataStream<T> {
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // keyBy() 返回 KeyedStream
 KeyedStream<Trade, String> keyedTrades = trades.keyBy(trade -> trade.getSymbol());
@@ -96,7 +100,11 @@ keyBy(symbol) 后生成 KeyedStream:
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 按交易对分组
 KeyedStream<Trade, String> keyedBySymbol = trades.keyBy(trade -> trade.getSymbol());

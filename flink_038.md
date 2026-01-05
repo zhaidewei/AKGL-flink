@@ -20,7 +20,11 @@
 ## 最小可用例子
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置Watermark：最大乱序时间10秒
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
@@ -58,7 +62,11 @@ Watermark推进:
 ## 币安交易数据示例
 
 ```java
-DataStream<Trade> trades = env.addSource(new BinanceSource());
+DataStream<Trade> trades = env.fromSource(
+    new BinanceWebSocketSource("btcusdt"),
+    WatermarkStrategy.noWatermarks(),
+    "Binance Source"
+);
 
 // 设置Watermark策略
 DataStream<Trade> withWatermark = trades.assignTimestampsAndWatermarks(
